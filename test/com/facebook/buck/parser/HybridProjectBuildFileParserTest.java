@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser;
@@ -50,6 +50,7 @@ public class HybridProjectBuildFileParserTest {
           ImmutableSortedSet.of(),
           ImmutableMap.of(),
           Optional.empty(),
+          ImmutableList.of(),
           ImmutableList.of());
 
   @Mock PythonDslProjectBuildFileParser pythonDslParser;
@@ -73,30 +74,27 @@ public class HybridProjectBuildFileParserTest {
 
   @Test
   public void getAllRulesCallsPythonDslParserWhenRequestedExplicitly() throws Exception {
-    EasyMock.expect(pythonDslParser.getBuildFileManifest(buildFile))
-        .andReturn(EMPTY_BUILD_FILE_MANIFEST);
+    EasyMock.expect(pythonDslParser.getManifest(buildFile)).andReturn(EMPTY_BUILD_FILE_MANIFEST);
     EasyMock.replay(pythonDslParser);
     Files.write(buildFile, getParserDirectiveFor(Syntax.PYTHON_DSL).getBytes());
-    parser.getBuildFileManifest(buildFile);
+    parser.getManifest(buildFile);
     EasyMock.verify(pythonDslParser);
   }
 
   @Test
   public void getAllRulesCallsPythonDslParserByDefault() throws Exception {
-    EasyMock.expect(pythonDslParser.getBuildFileManifest(buildFile))
-        .andReturn(EMPTY_BUILD_FILE_MANIFEST);
+    EasyMock.expect(pythonDslParser.getManifest(buildFile)).andReturn(EMPTY_BUILD_FILE_MANIFEST);
     EasyMock.replay(pythonDslParser);
-    parser.getBuildFileManifest(buildFile);
+    parser.getManifest(buildFile);
     EasyMock.verify(pythonDslParser);
   }
 
   @Test
   public void getAllRulesCallsSkylarkParserByWhenItIsRequestedExplicitly() throws Exception {
-    EasyMock.expect(skylarkParser.getBuildFileManifest(buildFile))
-        .andReturn(EMPTY_BUILD_FILE_MANIFEST);
+    EasyMock.expect(skylarkParser.getManifest(buildFile)).andReturn(EMPTY_BUILD_FILE_MANIFEST);
     EasyMock.replay(skylarkParser);
     Files.write(buildFile, getParserDirectiveFor(Syntax.SKYLARK).getBytes());
-    parser.getBuildFileManifest(buildFile);
+    parser.getManifest(buildFile);
     EasyMock.verify(skylarkParser);
   }
 
@@ -106,7 +104,7 @@ public class HybridProjectBuildFileParserTest {
     thrown.expectMessage(
         "Unrecognized syntax [SKILARK] requested for build file [" + buildFile + "]");
     Files.write(buildFile, "# BUILD FILE SYNTAX: SKILARK".getBytes());
-    parser.getBuildFileManifest(buildFile);
+    parser.getManifest(buildFile);
   }
 
   @Test
@@ -117,7 +115,7 @@ public class HybridProjectBuildFileParserTest {
         HybridProjectBuildFileParser.using(
             ImmutableMap.of(Syntax.SKYLARK, skylarkParser), Syntax.SKYLARK);
     Files.write(buildFile, "# BUILD FILE SYNTAX: PYTHON_DSL".getBytes());
-    parser.getBuildFileManifest(buildFile);
+    parser.getManifest(buildFile);
   }
 
   @Test

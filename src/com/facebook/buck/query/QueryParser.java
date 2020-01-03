@@ -39,14 +39,13 @@ import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -139,7 +138,7 @@ final class QueryParser<NODE_TYPE> {
     return new QueryException(
         cause,
         "`%s` when parsing call to the function `%s(%s)`.  Please see "
-            + "https://buckbuild.com/command/query.html#%s for complete documentation.",
+            + "https://buck.build/command/query.html#%s for complete documentation.",
         cause.getMessage(),
         function.getName(),
         argumentsString.toString(),
@@ -222,70 +221,21 @@ final class QueryParser<NODE_TYPE> {
    * DEPS '(' expr ')' | DEPS '(' expr ',' WORD ')' | RDEPS '(' expr ',' expr ')' | RDEPS '(' expr
    * ',' expr ',' WORD ')' | SET '(' WORD * ')'
    */
-  @SuppressWarnings("unchecked")
   private QueryExpression<NODE_TYPE> parsePrimary() throws QueryException {
     switch (token.kind) {
       case WORD:
         {
-          String word = consume(TokenKind.WORD);
+          String word = Objects.requireNonNull(consume(TokenKind.WORD));
           if (token.kind == TokenKind.LPAREN) {
-            QueryFunction<? extends QueryTarget, NODE_TYPE> function = functions.get(word);
-            if (function == null) {
-              throw new QueryException(syntaxError(token), "Unknown function '%s'", word);
-            }
-            ImmutableList.Builder<Argument<NODE_TYPE>> argsBuilder = ImmutableList.builder();
             consume(TokenKind.LPAREN);
-            int argsSeen = 0;
-            for (ArgumentType type : function.getArgumentTypes()) {
-
-              // If the next token is a `)` and we've seen all mandatory args, then break out.
-              if (token.kind == TokenKind.RPAREN && argsSeen >= function.getMandatoryArguments()) {
-                break;
-              }
-
-              // Parse the individual arguments.
-              try {
-                switch (type) {
-                  case EXPRESSION:
-                    argsBuilder.add(Argument.of(parseExpression()));
-                    break;
-
-                  case WORD:
-                    argsBuilder.add(
-                        (Argument<NODE_TYPE>)
-                            Argument.of(Objects.requireNonNull(consume(TokenKind.WORD))));
-                    break;
-
-                  case INTEGER:
-                    argsBuilder.add((Argument<NODE_TYPE>) Argument.of(consumeIntLiteral()));
-                    break;
-
-                  default:
-                    throw new IllegalStateException();
-                }
-              } catch (QueryException e) {
-                throw syntaxError(e, function);
-              }
-
-              // If the next argument is a `,`, consume it before continuing to parsing the next
-              // argument.
-              if (token.kind == TokenKind.COMMA) {
-                consume(TokenKind.COMMA);
-              }
-
-              argsSeen++;
-            }
-
+            QueryExpression<NODE_TYPE> func = consumeFunction(word);
             consume(TokenKind.RPAREN);
-            return new ImmutableFunctionExpression<>(function, argsBuilder.build());
-          } else {
-            Objects.requireNonNull(word);
-            if (targetEvaluator.getType() == QueryEnvironment.TargetEvaluator.Type.LAZY) {
-              return TargetLiteral.of(word);
-            } else {
-              return TargetSetExpression.of(targetEvaluator.evaluateTarget(word));
-            }
+            return func;
           }
+          if (targetEvaluator.getType() == QueryEnvironment.TargetEvaluator.Type.LAZY) {
+            return TargetLiteral.of(word);
+          }
+          return TargetSetExpression.of(targetEvaluator.evaluateTarget(word));
         }
       case LPAREN:
         {
@@ -298,28 +248,79 @@ final class QueryParser<NODE_TYPE> {
         {
           nextToken();
           consume(TokenKind.LPAREN);
-          ImmutableList.Builder<String> wordsBuilder = ImmutableList.builder();
-          while (token.kind == TokenKind.WORD) {
-            wordsBuilder.add(Objects.requireNonNull(consume(TokenKind.WORD)));
-          }
+          ImmutableList<String> words = consumeWords();
           consume(TokenKind.RPAREN);
 
           if (targetEvaluator.getType() == QueryEnvironment.TargetEvaluator.Type.LAZY) {
-            return SetExpression.<NODE_TYPE>of(
-                wordsBuilder.build().stream()
+            return SetExpression.of(
+                words.stream()
                     .map(TargetLiteral::<NODE_TYPE>of)
-                    .collect(Collectors.toList()));
-          } else {
-            ImmutableSet.Builder<QueryTarget> targets = ImmutableSet.builder();
-            for (String word : wordsBuilder.build()) {
-              targets.addAll(targetEvaluator.evaluateTarget(word));
-            }
-            return TargetSetExpression.of(targets.build());
+                    .collect(ImmutableList.toImmutableList()));
           }
+          Set<QueryTarget> targets = Unions.of(word -> targetEvaluator.evaluateTarget(word), words);
+          return TargetSetExpression.of(targets);
         }
         // $CASES-OMITTED$
       default:
         throw syntaxError(token);
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private QueryExpression<NODE_TYPE> consumeFunction(String word) throws QueryException {
+    QueryFunction<? extends QueryTarget, NODE_TYPE> function = functions.get(word);
+    if (function == null) {
+      throw new QueryException(syntaxError(token), "Unknown function '%s'", word);
+    }
+    ImmutableList.Builder<Argument<NODE_TYPE>> argsBuilder = ImmutableList.builder();
+    int argsSeen = 0;
+    for (ArgumentType type : function.getArgumentTypes()) {
+
+      // If the next token is a `)` and we've seen all mandatory args, then break out.
+      if (token.kind == TokenKind.RPAREN && argsSeen >= function.getMandatoryArguments()) {
+        break;
+      }
+
+      // Parse the individual arguments.
+      try {
+        switch (type) {
+          case EXPRESSION:
+            argsBuilder.add(Argument.of(parseExpression()));
+            break;
+
+          case WORD:
+            argsBuilder.add(
+                (Argument<NODE_TYPE>) Argument.of(Objects.requireNonNull(consume(TokenKind.WORD))));
+            break;
+
+          case INTEGER:
+            argsBuilder.add((Argument<NODE_TYPE>) Argument.of(consumeIntLiteral()));
+            break;
+
+          default:
+            throw new IllegalStateException();
+        }
+      } catch (QueryException e) {
+        throw syntaxError(e, function);
+      }
+
+      // If the next argument is a `,`, consume it before continuing to parsing the next
+      // argument.
+      if (token.kind == TokenKind.COMMA) {
+        consume(TokenKind.COMMA);
+      }
+
+      argsSeen++;
+    }
+
+    return new FunctionExpression<>(function, argsBuilder.build());
+  }
+
+  private ImmutableList<String> consumeWords() throws QueryException {
+    ImmutableList.Builder<String> wordsBuilder = ImmutableList.builder();
+    while (token.kind == TokenKind.WORD) {
+      wordsBuilder.add(Objects.requireNonNull(consume(TokenKind.WORD)));
+    }
+    return wordsBuilder.build();
   }
 }

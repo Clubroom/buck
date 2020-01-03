@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -19,14 +19,15 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -66,7 +67,8 @@ public class CxxPrepareForLinkStepTest {
             dummyArgs,
             CxxPlatformUtils.DEFAULT_PLATFORM
                 .getLd()
-                .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE),
+                .resolve(buildRuleResolver, UnconfiguredTargetConfiguration.INSTANCE),
+            CanonicalCellName.rootCell(),
             dummyPath,
             buildRuleResolver.getSourcePathResolver());
 
@@ -86,7 +88,8 @@ public class CxxPrepareForLinkStepTest {
             dummyArgs,
             CxxPlatformUtils.DEFAULT_PLATFORM
                 .getLd()
-                .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE),
+                .resolve(buildRuleResolver, UnconfiguredTargetConfiguration.INSTANCE),
+            CanonicalCellName.rootCell(),
             dummyPath,
             buildRuleResolver.getSourcePathResolver());
 
@@ -175,7 +178,8 @@ public class CxxPrepareForLinkStepTest {
             args,
             CxxPlatformUtils.DEFAULT_PLATFORM
                 .getLd()
-                .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE),
+                .resolve(buildRuleResolver, UnconfiguredTargetConfiguration.INSTANCE),
+            CanonicalCellName.rootCell(),
             currentCellPath,
             buildRuleResolver.getSourcePathResolver());
 
@@ -188,7 +192,7 @@ public class CxxPrepareForLinkStepTest {
 
     ImmutableList<String> expectedArgFileContents =
         ImmutableList.<String>builder()
-            .add("-o", MorePaths.pathWithUnixSeparators(output))
+            .add("-o", PathFormatter.pathWithUnixSeparators(output))
             .add("-rpath")
             .add("hello")
             .add("a.o")
@@ -200,7 +204,8 @@ public class CxxPrepareForLinkStepTest {
             .build();
 
     ImmutableList<String> expectedFileListContents =
-        ImmutableList.of(MorePaths.pathWithUnixSeparators(Paths.get("libb.a").toAbsolutePath()));
+        ImmutableList.of(
+            PathFormatter.pathWithUnixSeparators(Paths.get("libb.a").toAbsolutePath()));
 
     checkContentsOfFile(argFilePath, expectedArgFileContents);
     checkContentsOfFile(fileListPath, expectedFileListContents);
@@ -241,7 +246,8 @@ public class CxxPrepareForLinkStepTest {
             args,
             CxxPlatformUtils.DEFAULT_PLATFORM
                 .getLd()
-                .resolve(buildRuleResolver, EmptyTargetConfiguration.INSTANCE),
+                .resolve(buildRuleResolver, UnconfiguredTargetConfiguration.INSTANCE),
+            CanonicalCellName.rootCell(),
             currentCellPath,
             buildRuleResolver.getSourcePathResolver());
 
@@ -256,7 +262,7 @@ public class CxxPrepareForLinkStepTest {
 
     ImmutableList<String> expectedArgFileContents =
         ImmutableList.<String>builder()
-            .add("-o", MorePaths.pathWithUnixSeparators(output))
+            .add("-o", PathFormatter.pathWithUnixSeparators(output))
             .add("-rpath")
             .add(isWindows ? "\"\\\"hello\\\"\"" : "'\"hello\"'")
             .add(isWindows ? "'a.o'" : "''\\''a.o'\\'''")
@@ -266,9 +272,9 @@ public class CxxPrepareForLinkStepTest {
                 isWindows
                     ? "\"/Library/Application Support/blabla\""
                     : "'/Library/Application Support/blabla'")
-            .add(MorePaths.pathWithUnixSeparators(FakeSourcePath.of("libb.a").toString()))
+            .add(PathFormatter.pathWithUnixSeparators(FakeSourcePath.of("libb.a").toString()))
             .add(
-                MorePaths.pathWithUnixSeparators(
+                PathFormatter.pathWithUnixSeparators(
                     FakeSourcePath.of("buck-out/gen/mylib#default,static/libmylib.lib").toString()))
             .build();
 

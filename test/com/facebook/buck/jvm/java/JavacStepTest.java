@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.java;
@@ -32,6 +32,7 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.step.ImmutableStepExecutionResult;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TestExecutionContext;
@@ -71,7 +72,7 @@ public class JavacStepTest {
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> false, file -> false, (path, glob) -> ImmutableSet.of());
 
-    BuildTarget target = BuildTargetFactory.newInstance(fakeFilesystem.getRootPath(), "//foo:bar");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavacStep step =
         new JavacStep(
             fakeJavac,
@@ -118,7 +119,7 @@ public class JavacStepTest {
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> false, file -> false, (path, glob) -> ImmutableSet.of());
 
-    BuildTarget target = BuildTargetFactory.newInstance(fakeFilesystem.getRootPath(), "//foo:bar");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavacStep step =
         new JavacStep(
             fakeJavac,
@@ -145,7 +146,13 @@ public class JavacStepTest {
 
     // JavacStep itself writes stdout to the console on error; we expect the Build class to write
     // the stderr stream returned in the StepExecutionResult
-    assertThat(result, equalTo(StepExecutionResult.of(1, Optional.of("javac stderr\n"))));
+    assertThat(
+        result,
+        equalTo(
+            ImmutableStepExecutionResult.builder()
+                .setExitCode(StepExecutionResults.ERROR_EXIT_CODE)
+                .setStderr(Optional.of("javac stderr\n"))
+                .build()));
     assertThat(listener.getLogMessages(), equalTo(ImmutableList.of("javac stdout\n")));
   }
 
@@ -167,7 +174,7 @@ public class JavacStepTest {
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> true, file -> false, (path, glob) -> ImmutableSet.of());
 
-    BuildTarget target = BuildTargetFactory.newInstance(fakeFilesystem.getRootPath(), "//foo:bar");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavacStep step =
         new JavacStep(
             fakeJavac,
@@ -214,7 +221,7 @@ public class JavacStepTest {
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> true, file -> false, (path, glob) -> ImmutableSet.of());
 
-    BuildTarget target = BuildTargetFactory.newInstance(fakeFilesystem.getRootPath(), "//foo:bar");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavacStep step =
         new JavacStep(
             fakeJavac,
@@ -267,7 +274,7 @@ public class JavacStepTest {
         new ClasspathChecker(
             "/", ":", Paths::get, dir -> false, file -> false, (path, glob) -> ImmutableSet.of());
 
-    BuildTarget target = BuildTargetFactory.newInstance(fakeFilesystem.getRootPath(), "//foo:bar");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavacStep step =
         new JavacStep(
             fakeJavac,

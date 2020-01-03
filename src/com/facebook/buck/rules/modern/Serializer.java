@@ -1,27 +1,28 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.ConfigurationForConfigurationTargets;
+import com.facebook.buck.core.model.RuleBasedTargetConfiguration;
 import com.facebook.buck.core.model.TargetConfiguration;
-import com.facebook.buck.core.model.impl.DefaultTargetConfiguration;
-import com.facebook.buck.core.model.impl.HostTargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.CustomFieldBehaviorTag;
 import com.facebook.buck.core.rulekey.CustomFieldSerializationTag;
@@ -33,13 +34,13 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.io.file.FastPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.modern.impl.BuildTargetTypeInfo;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
-import com.facebook.buck.rules.modern.impl.UnconfiguredBuildTargetTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ExcludedValueTypeInfo;
-import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.util.stream.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
@@ -78,8 +79,8 @@ import javax.annotation.Nullable;
 public class Serializer {
 
   public static final int TARGET_CONFIGURATION_TYPE_EMPTY = 0;
-  public static final int TARGET_CONFIGURATION_TYPE_HOST = 1;
   public static final int TARGET_CONFIGURATION_TYPE_DEFAULT = 2;
+  public static final int TARGET_CONFIGURATION_TYPE_CONFIGURATION = 3;
 
   private static final int MAX_INLINE_LENGTH = 100;
   private final ConcurrentHashMap<AddsToRuleKey, Either<HashCode, byte[]>> cache =
@@ -215,7 +216,7 @@ public class Serializer {
     @Override
     public void visitOutputPath(OutputPath value) throws IOException {
       stream.writeBoolean(value instanceof PublicOutputPath);
-      writeString(value.getPath().toString());
+      writeRelativePath(value.getPath());
     }
 
     private void writeString(String value) throws IOException {
@@ -235,7 +236,7 @@ public class Serializer {
         stream.writeBoolean(true);
         ExplicitBuildTargetSourcePath buildTargetSourcePath = (ExplicitBuildTargetSourcePath) value;
         writeValue(buildTargetSourcePath.getTarget(), new TypeToken<BuildTarget>() {});
-        writeString(buildTargetSourcePath.getResolvedPath().toString());
+        writeRelativePath(buildTargetSourcePath.getResolvedPath());
       } else if (value instanceof ForwardingBuildTargetSourcePath) {
         visitSourcePath(((ForwardingBuildTargetSourcePath) value).getDelegate());
       } else if (value instanceof PathSourcePath) {
@@ -243,7 +244,7 @@ public class Serializer {
         stream.writeBoolean(false);
         writeValue(
             getCellName(pathSourcePath.getFilesystem()), new TypeToken<Optional<String>>() {});
-        writeString(pathSourcePath.getRelativePath().toString());
+        writeRelativePath(pathSourcePath.getRelativePath());
       } else {
         throw new IllegalStateException(
             String.format("Cannot serialize SourcePath of type %s.", value.getClass().getName()));
@@ -327,10 +328,22 @@ public class Serializer {
         }
         ValueTypeInfoFactory.forTypeToken(new TypeToken<Optional<String>>() {})
             .visit(cellName, this);
-        writeString(cellPath.relativize(path).toString());
+        writeRelativePath(cellPath.relativize(path));
       } else {
         stream.writeBoolean(false);
-        stream.writeUTF(path.toString());
+        writeRelativePath(path);
+      }
+    }
+
+    private void writeRelativePath(Path path) throws IOException {
+      Verify.verify(!path.isAbsolute());
+      int nameCount = path.getNameCount();
+      stream.writeInt(nameCount);
+      if (nameCount == 0) {
+        writeString(path.toString());
+      }
+      for (int i = 0; i < nameCount; i++) {
+        writeString(FastPaths.getNameString(path, i));
       }
     }
 
@@ -415,14 +428,14 @@ public class Serializer {
 
     @Override
     public void visitTargetConfiguration(TargetConfiguration value) throws IOException {
-      if (value instanceof EmptyTargetConfiguration) {
+      if (value instanceof UnconfiguredTargetConfiguration) {
         stream.writeInt(TARGET_CONFIGURATION_TYPE_EMPTY);
-      } else if (value instanceof HostTargetConfiguration) {
-        stream.writeInt(TARGET_CONFIGURATION_TYPE_HOST);
-      } else if (value instanceof DefaultTargetConfiguration) {
+      } else if (value instanceof RuleBasedTargetConfiguration) {
         stream.writeInt(TARGET_CONFIGURATION_TYPE_DEFAULT);
-        UnconfiguredBuildTargetTypeInfo.INSTANCE.visit(
-            ((DefaultTargetConfiguration) value).getTargetPlatform(), this);
+        BuildTargetTypeInfo.INSTANCE.visit(
+            ((RuleBasedTargetConfiguration) value).getTargetPlatform(), this);
+      } else if (value instanceof ConfigurationForConfigurationTargets) {
+        stream.writeInt(TARGET_CONFIGURATION_TYPE_CONFIGURATION);
       } else {
         throw new IllegalArgumentException("Cannot serialize target configuration: " + value);
       }

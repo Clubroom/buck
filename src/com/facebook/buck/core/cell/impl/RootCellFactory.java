@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.cell.impl;
@@ -19,8 +19,9 @@ package com.facebook.buck.core.cell.impl;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.cell.NewCellPathResolver;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
@@ -32,8 +33,8 @@ import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactor
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import java.util.Optional;
-import java.util.function.Supplier;
+import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 import org.pf4j.PluginManager;
 
 /**
@@ -46,17 +47,17 @@ import org.pf4j.PluginManager;
 public class RootCellFactory {
 
   public static Cell create(
+      ImmutableSortedSet<Path> knownRoots,
       CellProvider cellProvider,
+      NewCellPathResolver newCellPathResolver,
       CellPathResolver rootCellCellPathResolver,
-      CellPathResolver rootCellPathResolver,
       ProjectFilesystem rootFilesystem,
       BuckModuleManager moduleManager,
       PluginManager pluginManager,
       BuckConfig rootConfig,
       ImmutableMap<String, String> environment,
       ProcessExecutor processExecutor,
-      ExecutableFinder executableFinder,
-      Supplier<TargetConfiguration> targetConfiguration) {
+      ExecutableFinder executableFinder) {
     Preconditions.checkState(
         !rootCellCellPathResolver.getCanonicalCellName(rootFilesystem.getRootPath()).isPresent(),
         "Root cell should be nameless");
@@ -70,20 +71,23 @@ public class RootCellFactory {
             rootFilesystem,
             processExecutor,
             executableFinder,
-            ruleKeyConfiguration,
-            targetConfiguration);
-    return ImmutableCell.of(
-        rootCellCellPathResolver.getKnownRoots(),
-        Optional.empty(),
+            ruleKeyConfiguration);
+
+    return ImmutableCellImpl.of(
+        knownRoots,
+        CanonicalCellName.rootCell(),
         rootFilesystem,
         rootConfig,
         cellProvider,
         toolchainProvider,
-        rootCellPathResolver);
+        rootCellCellPathResolver,
+        newCellPathResolver,
+        rootCellCellPathResolver.getCellNameResolver());
   }
 
   static Cell create(
       CellProvider cellProvider,
+      NewCellPathResolver newCellPathResolver,
       CellPathResolver rootCellCellPathResolver,
       ToolchainProviderFactory toolchainProviderFactory,
       ProjectFilesystem rootFilesystem,
@@ -96,13 +100,16 @@ public class RootCellFactory {
         ConfigRuleKeyConfigurationFactory.create(rootConfig, moduleManager);
     ToolchainProvider toolchainProvider =
         toolchainProviderFactory.create(rootConfig, rootFilesystem, ruleKeyConfiguration);
-    return ImmutableCell.of(
+
+    return ImmutableCellImpl.of(
         rootCellCellPathResolver.getKnownRoots(),
-        Optional.empty(),
+        CanonicalCellName.rootCell(),
         rootFilesystem,
         rootConfig,
         cellProvider,
         toolchainProvider,
-        rootCellCellPathResolver);
+        rootCellCellPathResolver,
+        newCellPathResolver,
+        rootCellCellPathResolver.getCellNameResolver());
   }
 }

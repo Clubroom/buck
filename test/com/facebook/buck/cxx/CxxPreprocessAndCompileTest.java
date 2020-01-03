@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -30,6 +30,7 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
@@ -37,7 +38,7 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
@@ -48,9 +49,9 @@ import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.ToolType;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -61,6 +62,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -439,8 +441,7 @@ public class CxxPreprocessAndCompileTest {
             .add("-O3")
             .add(
                 "-o",
-                PathNormalizer.toWindowsPathIfNeeded(Paths.get("buck-out/gen/foo/bar__/test.o"))
-                    .toString())
+                BuildTargetPaths.getGenPath(projectFilesystem, target, "%s__/test.o").toString())
             .add("-c")
             .add(input.toString())
             .build();
@@ -460,15 +461,15 @@ public class CxxPreprocessAndCompileTest {
     Tool compilerTool = new CommandTool.Builder().addInput(compiler).build();
 
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = ruleFinder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = ruleFinder.getSourcePathResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
 
     projectFilesystem.writeContentsToPath(
         "test.o: " + pathResolver.getRelativePath(DEFAULT_INPUT) + " ",
-        projectFilesystem.getPath(
-            PathNormalizer.toWindowsPathIfNeeded(Paths.get("buck-out/gen/foo/bar__/test.o.dep"))
-                .toString()));
+        BuildTargetPaths.getGenPath(
+                projectFilesystem, BuildTargetFactory.newInstance("//foo:bar"), "%s__")
+            .resolve("test.o.dep"));
     PathSourcePath fakeInput = FakeSourcePath.of(projectFilesystem, "test.cpp");
 
     CxxPreprocessAndCompile cxxPreprocess =
@@ -619,7 +620,7 @@ public class CxxPreprocessAndCompileTest {
         FakeBuildContext.withSourcePathResolver(ruleFinder.getSourcePathResolver());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     Path includePath = PathNormalizer.toWindowsPathIfNeeded(Paths.get("/foo/bar/zap"));
-    String includedPathStr = MorePaths.pathWithUnixSeparators(includePath);
+    String includedPathStr = PathFormatter.pathWithUnixSeparators(includePath);
 
     CxxToolFlags flags =
         CxxToolFlags.explicitBuilder()
@@ -627,8 +628,10 @@ public class CxxPreprocessAndCompileTest {
             .addRuleFlags(StringArg.of("-O3"))
             .addRuleFlags(StringArg.of("-I " + includedPathStr))
             .build();
-    String outputName = "baz\\test.o";
-    Path input = Paths.get("foo\\test.ii");
+
+    String slash = File.separator;
+    String outputName = "baz" + slash + "test.o";
+    Path input = Paths.get("foo" + slash + "test.ii");
 
     CxxPreprocessAndCompile buildRule =
         CxxPreprocessAndCompile.compile(
@@ -658,10 +661,15 @@ public class CxxPreprocessAndCompileTest {
             .add("-x", "c++")
             .add("-ffunction-sections")
             .add("-O3")
-            .add("-I " + MorePaths.pathWithUnixSeparators(includePath))
-            .add("-o", "buck-out/gen/foo/bar__/baz/test.o")
+            .add("-I " + PathFormatter.pathWithUnixSeparators(includePath))
+            .add(
+                "-o",
+                "buck-out/gen/"
+                    + BuildTargetPaths.getBasePath(
+                        projectFilesystem, BuildTargetFactory.newInstance("//foo:bar"), "%s__")
+                    + "/baz/test.o")
             .add("-c")
-            .add(MorePaths.pathWithUnixSeparators(input.toString()))
+            .add(PathFormatter.pathWithUnixSeparators(input.toString()))
             .build();
     ImmutableList<String> actualCompileCommand =
         buildRule.makeMainStep(context, false).getCommand();

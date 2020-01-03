@@ -1,26 +1,23 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.core.build.action;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.step.StepFailedException;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -41,8 +38,11 @@ public interface BuildEngineAction {
    */
   ImmutableSet<BuildTarget> getDependencies();
 
-  /** @return the set of outputs this {@link BuildEngineAction} builds */
-  ImmutableSet<SourcePath> getOutputs();
+  /**
+   * @return the set of outputs this {@link BuildEngineAction} builds. This is here for legacy as
+   *     BuildRules deal with {@link SourcePath}
+   */
+  ImmutableSet<SourcePath> getSourcePathOutputs();
 
   /**
    * Whether this {@link BuildEngineAction} can be cached.
@@ -55,20 +55,23 @@ public interface BuildEngineAction {
   /**
    * Executes this {@link BuildEngineAction}, called by the {@link
    * com.facebook.buck.core.build.engine.BuildEngine} to materialize the outputs declared in {@link
-   * #getOutputs()}
+   * #getSourcePathOutputs()}
+   *
+   * <p>TODO(bobyf): uncomment the below and change the signature slightly once we move build engine
+   * to actually use this.
+   *
+   * <pre>
+   * void execute( ProjectFilesystem filesystem, ExecutionContext executionContext, BuildContext
+   *    buildContext, BuildableContext buildableContext) throws StepFailedException,
+   *    InterruptedException;
+   * </pre>
    */
-  void execute(
-      ExecutionContext executionContext,
-      BuildContext buildContext,
-      BuildableContext buildableContext)
-      throws StepFailedException, InterruptedException;
 
   /**
-   * @return true if this rule, and all rules which that depend on it, should be built locally i.e.
-   *     on the machine that initiated a build instead of one of the remote workers taking part in
-   *     the distributed build.
+   * @return true if this rule should only be allowed to be executed via Remote Execution if it
+   *     satisfies input size limits.
    */
-  default boolean shouldBuildLocally() {
-    return false;
+  default boolean shouldRespectInputSizeLimitForRemoteExecution() {
+    return true;
   }
 }

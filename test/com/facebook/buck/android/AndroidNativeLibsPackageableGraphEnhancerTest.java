@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -44,9 +44,9 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
-import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
+import com.facebook.buck.cxx.CxxLibraryGroup;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
@@ -94,7 +94,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             Optional.empty(),
             RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(target, ImmutableSet.of(), apkModuleGraph);
@@ -140,8 +141,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     TargetNode<CxxLibraryDescriptionArg> cxxLibraryDescription = cxxLibraryBuilder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(cxxLibraryDescription);
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
-    CxxLibrary cxxLibrary =
-        (CxxLibrary)
+    CxxLibraryGroup cxxLibrary =
+        (CxxLibraryGroup)
             cxxLibraryBuilder.build(graphBuilder, new FakeProjectFilesystem(), targetGraph);
     graphBuilder.addToIndex(cxxLibrary);
 
@@ -168,7 +169,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             Optional.empty(),
             RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(target, ImmutableSet.of(), apkModuleGraph);
@@ -207,8 +209,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   public void testEmptyNativePlatformsWithNativeLinkables() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
-    CxxLibrary cxxLibrary =
-        (CxxLibrary)
+    CxxLibraryGroup cxxLibrary =
+        (CxxLibraryGroup)
             new CxxLibraryBuilder(
                     BuildTargetFactory.newInstance("//:cxxlib"), CxxPlatformUtils.DEFAULT_CONFIG)
                 .build(graphBuilder);
@@ -236,7 +238,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             Optional.empty(),
             RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(target, ImmutableSet.of(), apkModuleGraph);
@@ -250,8 +253,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   public void testEmptyNativePlatformsWithNativeLinkableAssets() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
-    CxxLibrary cxxLibrary =
-        (CxxLibrary)
+    CxxLibraryGroup cxxLibrary =
+        (CxxLibraryGroup)
             new CxxLibraryBuilder(
                     BuildTargetFactory.newInstance("//:cxxlib"), CxxPlatformUtils.DEFAULT_CONFIG)
                 .build(graphBuilder);
@@ -279,7 +282,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             Optional.empty(),
             RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(target, ImmutableSet.of(), apkModuleGraph);
@@ -328,12 +332,12 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         TargetGraphFactory.newInstance(
             ImmutableList.of(cxxLibraryDescription1, cxxLibraryDescription2));
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
-    CxxLibrary cxxLibrary1 =
-        (CxxLibrary)
+    CxxLibraryGroup cxxLibrary1 =
+        (CxxLibraryGroup)
             cxxLibraryBuilder1.build(graphBuilder, new FakeProjectFilesystem(), targetGraph);
     graphBuilder.addToIndex(cxxLibrary1);
-    CxxLibrary cxxLibrary2 =
-        (CxxLibrary)
+    CxxLibraryGroup cxxLibrary2 =
+        (CxxLibraryGroup)
             cxxLibraryBuilder2.build(graphBuilder, new FakeProjectFilesystem(), targetGraph);
     graphBuilder.addToIndex(cxxLibrary2);
 
@@ -360,7 +364,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             Optional.empty(),
             RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(target, ImmutableSet.of(), apkModuleGraph);

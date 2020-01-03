@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.model.actiongraph.computation;
@@ -20,6 +20,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -103,7 +104,7 @@ public class ActionGraphProvider {
   }
 
   /** Create an ActionGraph, using options extracted from a BuckConfig. */
-  public ActionGraphAndBuilder getActionGraph(TargetGraph targetGraph) {
+  public ActionGraphAndBuilder getActionGraph(TargetGraphCreationResult targetGraph) {
     return getActionGraph(
         new DefaultTargetNodeToBuildRuleTransformer(), targetGraph, Optional.empty());
   }
@@ -118,13 +119,14 @@ public class ActionGraphProvider {
    */
   public ActionGraphAndBuilder getActionGraph(
       TargetNodeToBuildRuleTransformer transformer,
-      TargetGraph targetGraph,
+      TargetGraphCreationResult targetGraphCreationResult,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
     ActionGraphAndBuilder out;
     ActionGraphEvent.Finished finished = ActionGraphEvent.finished(started);
     try {
+      TargetGraph targetGraph = targetGraphCreationResult.getTargetGraph();
       RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeyConfiguration);
       ActionGraphAndBuilder cachedActionGraph = actionGraphCache.getIfPresent(targetGraph);
       if (cachedActionGraph != null) {
@@ -173,7 +175,7 @@ public class ActionGraphProvider {
    * @param targetGraph the target graph that the action graph will be based on.
    * @return a {@link ActionGraphAndBuilder}
    */
-  public ActionGraphAndBuilder getFreshActionGraph(TargetGraph targetGraph) {
+  public ActionGraphAndBuilder getFreshActionGraph(TargetGraphCreationResult targetGraph) {
     TargetNodeToBuildRuleTransformer transformer = new DefaultTargetNodeToBuildRuleTransformer();
     return getFreshActionGraph(transformer, targetGraph);
   }
@@ -188,12 +190,13 @@ public class ActionGraphProvider {
    * @return It returns a {@link ActionGraphAndBuilder}
    */
   public ActionGraphAndBuilder getFreshActionGraph(
-      TargetNodeToBuildRuleTransformer transformer, TargetGraph targetGraph) {
+      TargetNodeToBuildRuleTransformer transformer, TargetGraphCreationResult targetGraph) {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
 
     ActionGraphAndBuilder actionGraph =
-        createActionGraph(transformer, targetGraph, IncrementalActionGraphMode.DISABLED);
+        createActionGraph(
+            transformer, targetGraph.getTargetGraph(), IncrementalActionGraphMode.DISABLED);
 
     eventBus.post(ActionGraphEvent.finished(started, actionGraph.getActionGraph().getSize()));
     return actionGraph;

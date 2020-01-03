@@ -1,21 +1,24 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.model;
 
+import com.facebook.buck.core.cell.name.CanonicalCellName;
+import com.facebook.buck.core.exceptions.DependencyStack;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -23,8 +26,11 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Interner;
+import com.google.common.collect.Interners;
 import com.google.common.collect.Ordering;
-import org.immutables.value.Value;
+import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * Data object that holds properties to uniquely identify a build target with flavors
@@ -42,10 +48,9 @@ import org.immutables.value.Value;
  * used anymore, instead you want to use a {@link BuildTarget} along with passed {@link
  * TargetConfiguration}.
  */
-@Value.Immutable(builder = false, copy = false, prehash = true)
 @JsonDeserialize
-public abstract class UnconfiguredBuildTarget
-    implements Comparable<UnconfiguredBuildTarget>, QueryTarget {
+public class UnconfiguredBuildTarget
+    implements Comparable<UnconfiguredBuildTarget>, QueryTarget, DependencyStack.Element {
 
   private static final Ordering<Iterable<Flavor>> LEXICOGRAPHICAL_ORDERING =
       Ordering.<Flavor>natural().lexicographical();
@@ -57,67 +62,78 @@ public abstract class UnconfiguredBuildTarget
   public static final ImmutableSortedSet<Flavor> NO_FLAVORS =
       ImmutableSortedSet.orderedBy(FLAVOR_ORDERING).build();
 
-  private static final String BUILD_TARGET_PREFIX = "//";
+  private final UnflavoredBuildTarget unflavoredBuildTarget;
+  private final ImmutableSortedSet<Flavor> flavors;
+  private final int hash;
+
+  private UnconfiguredBuildTarget(
+      UnflavoredBuildTarget unflavoredBuildTarget, ImmutableSortedSet<Flavor> flavors) {
+    Preconditions.checkArgument(flavors.comparator() == FLAVOR_ORDERING);
+    this.unflavoredBuildTarget = unflavoredBuildTarget;
+    this.flavors = flavors;
+    this.hash = Objects.hash(unflavoredBuildTarget, flavors);
+  }
+
+  @JsonIgnore
+  public UnflavoredBuildTarget getUnflavoredBuildTarget() {
+    return unflavoredBuildTarget;
+  }
 
   /** Name of the cell that current build target belongs to */
-  @Value.Parameter
   @JsonProperty("cell")
-  public abstract String getCell();
+  public CanonicalCellName getCell() {
+    return getCellRelativeBasePath().getCellName();
+  }
 
   /**
    * Base name of build target, i.e. part of fully qualified name before the colon If this build
-   * target were //third_party/java/guava:guava-latest, then this would return
+   * target were cell_name//third_party/java/guava:guava-latest, then this would return
    * "//third_party/java/guava"
    */
-  @Value.Parameter
   @JsonProperty("baseName")
-  public abstract String getBaseName();
+  private String getBaseNameString() {
+    return getBaseName().toString();
+  }
+
+  @JsonIgnore
+  public BaseName getBaseName() {
+    return BaseName.ofPath(getCellRelativeBasePath().getPath());
+  }
+
+  /** Typed version of {@link #getBaseName()}. */
+  @JsonIgnore
+  public CellRelativePath getCellRelativeBasePath() {
+    return getUnflavoredBuildTarget().getCellRelativeBasePath();
+  }
 
   /**
    * Name of the build target, i.e. part of fully qualified name after the colon If this build
-   * target were //third_party/java/guava:guava-latest, then this would return "guava-latest"
+   * target were cell_name//third_party/java/guava:guava-latest, then this would return
+   * "guava-latest"
    */
-  @Value.Parameter
   @JsonProperty("name")
-  public abstract String getName();
+  public String getName() {
+    return getUnflavoredBuildTarget().getLocalName();
+  }
 
   /** Set of flavors used with that build target. */
-  @Value.Parameter
   @JsonProperty("flavors")
-  public abstract ImmutableSortedSet<Flavor> getFlavors();
-
-  /** Validation for flavor ordering */
-  @Value.Check
-  protected void check() {
-    // this check is not always required but may be expensive
-    // TODO(buck_team): only validate data if provided as a user input
-
-    Preconditions.checkArgument(
-        getBaseName().startsWith(BUILD_TARGET_PREFIX),
-        "baseName must start with %s but was %s",
-        BUILD_TARGET_PREFIX,
-        getBaseName());
-
-    // BaseName may contain backslashes, which are the path separator, so not permitted.
-    Preconditions.checkArgument(
-        !getBaseName().contains("\\"), "baseName may not contain backslashes.");
-
-    Preconditions.checkArgument(
-        !getName().contains("#"), "Build target name cannot contain '#' but was: %s.", getName());
-
-    Preconditions.checkArgument(
-        getFlavors().comparator() == FLAVOR_ORDERING,
-        "Flavors must be ordered using natural ordering.");
+  public ImmutableSortedSet<Flavor> getFlavors() {
+    return flavors;
   }
+
+  @Nullable private String fullyQualifiedName;
 
   /**
    * Fully qualified name of unconfigured build target, for example
    * cell//some/target:name#flavor1,flavor2
    */
-  @Value.Lazy
   @JsonIgnore
   public String getFullyQualifiedName() {
-    return getCell() + getBaseName() + ":" + getName() + getFlavorPostfix();
+    if (fullyQualifiedName == null) {
+      fullyQualifiedName = getUnflavoredBuildTarget().getFullyQualifiedName() + getFlavorPostfix();
+    }
+    return fullyQualifiedName;
   }
 
   @JsonIgnore
@@ -139,16 +155,73 @@ public abstract class UnconfiguredBuildTarget
   }
 
   @Override
-  public int compareTo(UnconfiguredBuildTarget o) {
+  public int hashCode() {
+    return hash;
+  }
+
+  @Override
+  public boolean equals(Object o) {
     if (this == o) {
+      return true;
+    }
+    if (o == null || this.getClass() != o.getClass()) {
+      return false;
+    }
+    UnconfiguredBuildTarget that = (UnconfiguredBuildTarget) o;
+    return this.hash == that.hash
+        && this.unflavoredBuildTarget.equals(that.unflavoredBuildTarget)
+        && this.flavors.equals(that.flavors);
+  }
+
+  @Override
+  public int compareTo(UnconfiguredBuildTarget that) {
+    if (this == that) {
       return 0;
     }
 
     return ComparisonChain.start()
-        .compare(getCell(), o.getCell())
-        .compare(getBaseName(), o.getBaseName())
-        .compare(getName(), o.getName())
-        .compare(getFlavors(), o.getFlavors(), LEXICOGRAPHICAL_ORDERING)
+        .compare(this.unflavoredBuildTarget, that.unflavoredBuildTarget)
+        .compare(this.flavors, that.flavors, LEXICOGRAPHICAL_ORDERING)
         .result();
+  }
+
+  @JsonIgnore
+  public String getCellRelativeName() {
+    return getBaseName() + ":" + getName() + getFlavorPostfix();
+  }
+
+  @Override
+  @JsonIgnore
+  public DependencyStack.Element getElement() {
+    return this;
+  }
+
+  private static final Interner<UnconfiguredBuildTarget> interner = Interners.newWeakInterner();
+
+  /** A constructor */
+  public static UnconfiguredBuildTarget of(
+      UnflavoredBuildTarget unflavoredBuildTarget, ImmutableSortedSet<Flavor> flavors) {
+    return interner.intern(new UnconfiguredBuildTarget(unflavoredBuildTarget, flavors));
+  }
+
+  /** A constructor */
+  private static UnconfiguredBuildTarget of(
+      CellRelativePath cellRelativePath, String name, ImmutableSortedSet<Flavor> flavors) {
+    return of(UnflavoredBuildTarget.of(cellRelativePath, name), flavors);
+  }
+
+  /** A constructor */
+  public static UnconfiguredBuildTarget of(
+      CanonicalCellName cell, BaseName baseName, String name, ImmutableSortedSet<Flavor> flavors) {
+    return of(new ImmutableCellRelativePath(cell, baseName.getPath()), name, flavors);
+  }
+
+  @JsonCreator
+  static UnconfiguredBuildTarget fromJson(
+      @JsonProperty("cell") CanonicalCellName cell,
+      @JsonProperty("baseName") String baseName,
+      @JsonProperty("name") String name,
+      @JsonProperty("flavors") ImmutableSortedSet<Flavor> flavors) {
+    return of(cell, BaseName.of(baseName), name, flavors);
   }
 }

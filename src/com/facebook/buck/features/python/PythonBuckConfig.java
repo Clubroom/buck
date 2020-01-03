@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.python;
@@ -26,6 +26,7 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.rules.tool.config.ToolConfig;
+import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -36,6 +37,9 @@ public class PythonBuckConfig {
   public static final Flavor DEFAULT_PYTHON_PLATFORM = InternalFlavor.of("py-default");
 
   private static final String PYTHON_PLATFORM_SECTION_PREFIX = "python#";
+
+  private static final ImmutableList<String> DEFAULT_INPLACE_INTERPRETER_FLAGS =
+      ImmutableList.of("-Es");
 
   private final BuckConfig delegate;
 
@@ -55,8 +59,8 @@ public class PythonBuckConfig {
     return delegate.getMaybeBuildTarget(SECTION, "path_to_pex", targetConfiguration);
   }
 
-  public String getPexFlags() {
-    return delegate.getValue(SECTION, "pex_flags").orElse("");
+  public ImmutableList<String> getPexFlags() {
+    return delegate.getListWithoutComments(SECTION, "pex_flags", ' ');
   }
 
   public Optional<Tool> getRawPexTool(
@@ -103,6 +107,13 @@ public class PythonBuckConfig {
     return delegate
         .getEnum(SECTION, "package_style", PackageStyle.class)
         .orElse(PackageStyle.STANDALONE);
+  }
+
+  /** @return the flags that should be added to the hashbang of inplace python binaries */
+  public ImmutableList<String> inplaceBinaryInterpreterFlags() {
+    return delegate
+        .getOptionalListWithoutComments(SECTION, "inplace_interpreter_flags", ' ')
+        .orElse(DEFAULT_INPLACE_INTERPRETER_FLAGS);
   }
 
   public String getDefaultPythonPlatformSection() {

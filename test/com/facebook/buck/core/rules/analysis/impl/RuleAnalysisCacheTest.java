@@ -1,18 +1,19 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.core.rules.analysis.impl;
 
 import static org.junit.Assert.assertEquals;
@@ -22,7 +23,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.analysis.ImmutableRuleAnalysisKey;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisResult;
-import com.facebook.buck.core.rules.providers.impl.ProviderInfoCollectionImpl;
+import com.facebook.buck.core.rules.providers.collect.impl.TestProviderInfoCollectionImpl;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 import org.junit.Before;
@@ -50,7 +51,7 @@ public class RuleAnalysisCacheTest {
 
     RuleAnalysisResult cachedResult =
         ImmutableRuleAnalysisResultImpl.of(
-            buildTarget, ProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
+            buildTarget, TestProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
     cache.put(ImmutableRuleAnalysisKey.of(buildTarget), cachedResult);
 
     // assert that we cache and return the same instance
@@ -69,10 +70,10 @@ public class RuleAnalysisCacheTest {
 
     RuleAnalysisResult cachedResult1 =
         ImmutableRuleAnalysisResultImpl.of(
-            buildTarget1, ProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
+            buildTarget1, TestProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
     RuleAnalysisResult cachedResult2 =
         ImmutableRuleAnalysisResultImpl.of(
-            buildTarget2, ProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
+            buildTarget2, TestProviderInfoCollectionImpl.builder().build(), ImmutableMap.of());
 
     cache.put(ImmutableRuleAnalysisKey.of(buildTarget1), cachedResult1);
     cache.put(ImmutableRuleAnalysisKey.of(buildTarget2), cachedResult2);

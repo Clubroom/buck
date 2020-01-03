@@ -1,23 +1,25 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.project.intellij;
 
 import static com.facebook.buck.features.project.intellij.IjProjectPaths.getUrl;
 
+import com.facebook.buck.android.AndroidLibraryDescription;
+import com.facebook.buck.android.AndroidLibraryDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.features.project.intellij.model.ContentRoot;
@@ -25,8 +27,8 @@ import com.facebook.buck.features.project.intellij.model.IjLibrary;
 import com.facebook.buck.features.project.intellij.model.IjModule;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
 import com.facebook.buck.features.project.intellij.model.ModuleIndexEntry;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -51,7 +53,9 @@ public class IjProjectWriter {
   static final String INTELLIJ_TYPE = "intellij.type";
   static final String INTELLIJ_NAME = "intellij.name";
   static final String INTELLIJ_FILE_PATH = "intellij.file_path";
+  static final String MODULE_LANG = "module.lang";
   static final String MODULE_TYPE = "module";
+  static final String BUCK_TYPE = "buck.type";
   static final String LIBRARY_TYPE = "library";
 
   private final TargetGraph targetGraph;
@@ -144,7 +148,10 @@ public class IjProjectWriter {
                         targetInfo.put(
                             INTELLIJ_FILE_PATH,
                             projectPaths.getModuleImlFilePath(module).toString());
-                        targetInfo.put("buck.type", getRuleNameForBuildTarget(target));
+                        targetInfo.put(BUCK_TYPE, getRuleNameForBuildTarget(target));
+                        getModuleLang(target)
+                            .ifPresent(
+                                moduleLang -> targetInfo.put(MODULE_LANG, moduleLang.toString()));
                         targetInfoMap.put(target.getFullyQualifiedName(), targetInfo);
                       });
             });
@@ -162,7 +169,7 @@ public class IjProjectWriter {
                         targetInfo.put(
                             INTELLIJ_FILE_PATH,
                             projectPaths.getLibraryXmlFilePath(library).toString());
-                        targetInfo.put("buck.type", getRuleNameForBuildTarget(target));
+                        targetInfo.put(BUCK_TYPE, getRuleNameForBuildTarget(target));
                         targetInfoMap.put(target.getFullyQualifiedName(), targetInfo);
                       });
             });
@@ -181,6 +188,14 @@ public class IjProjectWriter {
 
   private String getRuleNameForBuildTarget(BuildTarget buildTarget) {
     return targetGraph.get(buildTarget).getRuleType().getName();
+  }
+
+  private Optional<AndroidLibraryDescription.JvmLanguage> getModuleLang(BuildTarget buildTarget) {
+    if (targetGraph.get(buildTarget).getConstructorArg() instanceof AndroidLibraryDescriptionArg) {
+      return ((AndroidLibraryDescriptionArg) (targetGraph.get(buildTarget).getConstructorArg()))
+          .getLanguage();
+    }
+    return Optional.empty();
   }
 
   private boolean writeModule(IjModule module, ImmutableList<ContentRoot> contentRoots)
@@ -333,13 +348,13 @@ public class IjProjectWriter {
     final Set<Path> existingModuleFilepaths =
         existingModules.stream()
             .map(ModuleIndexEntry::getFilePath)
-            .map(MorePaths::pathWithUnixSeparators)
+            .map(PathFormatter::pathWithUnixSeparators)
             .map(Paths::get)
             .collect(ImmutableSet.toImmutableSet());
     ImmutableSet<Path> remainingModuleFilepaths =
         modulesEdited.stream()
             .map(projectPaths::getModuleImlFilePath)
-            .map(MorePaths::pathWithUnixSeparators)
+            .map(PathFormatter::pathWithUnixSeparators)
             .map(Paths::get)
             .filter(modulePath -> !existingModuleFilepaths.contains(modulePath))
             .collect(ImmutableSet.toImmutableSet());

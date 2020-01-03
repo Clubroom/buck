@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.keys;
@@ -20,6 +20,7 @@ import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.actions.Action;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -106,7 +107,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
             RuleKeyBuilder.createDefaultHasher(ruleKeyLogger));
     ruleKeyFieldLoader.setFields(builder, rule, keyType.toRuleKeyType());
     Result<RuleKey> result = builder.buildResult(RuleKey::new);
-    return RuleKeyAndInputs.of(result.getRuleKey(), result.getSourcePaths());
+    return ImmutableRuleKeyAndInputs.of(result.getRuleKey(), result.getSourcePaths());
   }
 
   private class Builder<RULE_KEY> extends RuleKeyBuilder<RULE_KEY> {
@@ -114,6 +115,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     private final SupportsDependencyFileRuleKey rule;
     private final KeyType keyType;
     private final ImmutableSet<DependencyFileEntry> depFileEntriesSet;
+    private final ImmutableSet<Path> depFilePossiblePaths;
 
     private final Predicate<SourcePath> coveredPathPredicate;
     private final Predicate<SourcePath> interestingPathPredicate;
@@ -134,8 +136,23 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
       this.keyType = keyType;
       this.rule = rule;
       this.depFileEntriesSet = ImmutableSet.copyOf(depFileEntries);
+      this.depFilePossiblePaths = getDepfilePossiblePaths(depFileEntries);
       this.coveredPathPredicate = coveredPathPredicate;
       this.interestingPathPredicate = interestingPathPredicate;
+    }
+
+    /**
+     * To optimize the common case where a path isn't part of the depfile, we create a set of
+     * possible Paths that may be the pathToFile for a DependencyFileEntry.
+     */
+    private ImmutableSet<Path> getDepfilePossiblePaths(
+        ImmutableList<DependencyFileEntry> depFileEntries) {
+      ImmutableSet.Builder<Path> builder =
+          ImmutableSet.builderWithExpectedSize(depFileEntries.size());
+      for (DependencyFileEntry entry : depFileEntries) {
+        builder.add(entry.pathToFile());
+      }
+      return builder.build();
     }
 
     @Override
@@ -154,9 +171,9 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
       // its structure information: `myPaths;Optional;List`. This adds additional overhead of
       // bookkeeping that information and counters any benefits caching would provide here.
       try (Scope ignored = getScopedHasher().wrapperScope(RuleKeyHasher.Wrapper.APPENDABLE)) {
-        try (RuleKeyScopedHasher.ContainerScope tupleScope =
+        try (RuleKeyScopedHasher.ContainerScope ignored2 =
             getScopedHasher().containerScope(RuleKeyHasher.Container.TUPLE)) {
-          AlterRuleKeys.amendKey(new ScopedRuleKeyObjectSink(tupleScope, this), appendable);
+          AlterRuleKeys.amendKey(this, appendable);
         }
       }
       return this;
@@ -210,15 +227,21 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
           // 1: If this path is not covered by dep-file, then add it to the builder directly.
           this.setSourcePathDirectly(input);
         } else {
-          // 2,3,4: This input path is covered by the dep-file
-          DependencyFileEntry entry =
-              DependencyFileEntry.fromSourcePath(input, ruleFinder.getSourcePathResolver());
-          if (depFileEntriesSet.contains(entry)) {
-            // 2: input was declared as a real dependency by the dep-file entries so add to key
-            this.setSourcePathDirectly(input);
-            sourcePaths.add(input);
-            accountedEntries.add(entry);
-          } else if (interestingPathPredicate.test(input)) {
+          if (depFilePossiblePaths.contains(
+              DependencyFileEntry.getPathToFile(ruleFinder.getSourcePathResolver(), input))) {
+            // 2,3,4: This input path is covered by the dep-file
+            DependencyFileEntry entry =
+                DependencyFileEntry.fromSourcePath(input, ruleFinder.getSourcePathResolver());
+            if (depFileEntriesSet.contains(entry)) {
+              // 2: input was declared as a real dependency by the dep-file entries so add to key
+              this.setSourcePathDirectly(input);
+              sourcePaths.add(input);
+              accountedEntries.add(entry);
+              return this;
+            }
+          }
+
+          if (interestingPathPredicate.test(input)) {
             // 3: path not present in the dep-file, however the existence is of interest
             this.setNonHashingSourcePath(input);
           }
@@ -241,6 +264,15 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     @Override
     protected Builder<RULE_KEY> setNonHashingSourcePath(SourcePath sourcePath) {
       setNonHashingSourcePathDirectly(sourcePath);
+      return this;
+    }
+
+    @Override
+    protected AbstractRuleKeyBuilder<RULE_KEY> setAction(Action action) {
+      // we just hash the action directly like for AddsToRuleKey objects.
+      try (Scope ignored = getScopedHasher().wrapperScope(RuleKeyHasher.Wrapper.ACTION)) {
+        AlterRuleKeys.amendKey(this, action);
+      }
       return this;
     }
 

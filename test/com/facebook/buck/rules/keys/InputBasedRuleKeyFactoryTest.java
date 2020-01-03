@@ -1,23 +1,25 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.artifact.BuildTargetSourcePathToArtifactConverter;
+import com.facebook.buck.core.artifact.ImmutableSourceArtifactImpl;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -29,6 +31,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.actions.ActionRegistryForTests;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -36,7 +39,7 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.file.RemoteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -45,10 +48,10 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -101,6 +104,52 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
+  public void actionRuleKeyDoesNotChangeWhenOnlyDependencyRuleKeyChanges() throws Exception {
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+
+    Path depOutput = Paths.get("output");
+
+    class ChangeableFakeBuildRule extends FakeBuildRule {
+
+      @AddToRuleKey public int i = 1;
+
+      public ChangeableFakeBuildRule(BuildTarget target) {
+        super(target);
+      }
+    }
+
+    ChangeableFakeBuildRule dep =
+        graphBuilder.addToIndex(
+            new ChangeableFakeBuildRule(BuildTargetFactory.newInstance("//:dep")));
+
+    dep.setOutputFile(depOutput.toString());
+    filesystem.writeContentsToPath(
+        "hello", graphBuilder.getSourcePathResolver().getRelativePath(dep.getSourcePathToOutput()));
+
+    FakeFileHashCache hashCache =
+        new FakeFileHashCache(ImmutableMap.of(filesystem.resolve(depOutput), HashCode.fromInt(0)));
+
+    SomeAction action =
+        new SomeAction(
+            new ActionRegistryForTests(BuildTargetFactory.newInstance("//:foo")),
+            ImmutableSortedSet.of(
+                BuildTargetSourcePathToArtifactConverter.convert(
+                    filesystem, dep.getSourcePathToOutput())),
+            ImmutableSortedSet.of(),
+            1,
+            "a");
+
+    RuleKey inputKey1 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
+
+    dep.i = 5;
+
+    RuleKey inputKey2 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
+
+    assertThat(inputKey1, Matchers.equalTo(inputKey2));
+  }
+
+  @Test
   public void ruleKeyChangesIfInputContentsFromPathSourceChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -128,9 +177,39 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   @Test
+  public void actionRuleKeyChangesIfInputContentsFromPathSourceChanges() {
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path output = Paths.get("output");
+
+    SomeAction action =
+        new SomeAction(
+            new ActionRegistryForTests(BuildTargetFactory.newInstance("//:rule")),
+            ImmutableSortedSet.of(
+                ImmutableSourceArtifactImpl.of(PathSourcePath.of(filesystem, output))),
+            ImmutableSortedSet.of(),
+            1,
+            "a");
+
+    // Build a rule key with a particular hash set for the output for the above rule.
+    FakeFileHashCache hashCache =
+        new FakeFileHashCache(ImmutableMap.of(filesystem.resolve(output), HashCode.fromInt(0)));
+
+    RuleKey inputKey1 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
+
+    // Now, build a rule key with a different hash for the output for the above rule.
+    hashCache =
+        new FakeFileHashCache(ImmutableMap.of(filesystem.resolve(output), HashCode.fromInt(1)));
+
+    RuleKey inputKey2 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
+
+    assertThat(inputKey1, Matchers.not(Matchers.equalTo(inputKey2)));
+  }
+
+  @Test
   public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildRule dep =
@@ -161,6 +240,48 @@ public class InputBasedRuleKeyFactoryTest {
                 HashCode.fromInt(1)));
 
     RuleKey inputKey2 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(rule);
+
+    assertThat(inputKey1, Matchers.not(Matchers.equalTo(inputKey2)));
+  }
+
+  @Test
+  public void actionRuleKeyChangesIfInputContentsFromBuildTargetSourcePathChanges() {
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+
+    BuildRule dep =
+        GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
+            .setOut("out")
+            .build(graphBuilder, filesystem);
+
+    SomeAction action =
+        new SomeAction(
+            new ActionRegistryForTests(BuildTargetFactory.newInstance("//:action")),
+            ImmutableSortedSet.of(
+                BuildTargetSourcePathToArtifactConverter.convert(
+                    filesystem, dep.getSourcePathToOutput())),
+            ImmutableSortedSet.of(),
+            1,
+            "");
+
+    // Build a rule key with a particular hash set for the output for the above rule.
+    FakeFileHashCache hashCache =
+        new FakeFileHashCache(
+            ImmutableMap.of(
+                pathResolver.getAbsolutePath(Objects.requireNonNull(dep.getSourcePathToOutput())),
+                HashCode.fromInt(0)));
+
+    RuleKey inputKey1 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
+
+    // Now, build a rule key with a different hash for the output for the above rule.
+    hashCache =
+        new FakeFileHashCache(
+            ImmutableMap.of(
+                pathResolver.getAbsolutePath(Objects.requireNonNull(dep.getSourcePathToOutput())),
+                HashCode.fromInt(1)));
+
+    RuleKey inputKey2 = new TestInputBasedRuleKeyFactory(hashCache, graphBuilder).build(action);
 
     assertThat(inputKey1, Matchers.not(Matchers.equalTo(inputKey2)));
   }
@@ -198,7 +319,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathInRuleKeyAppendableChanges() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildRule dep =
@@ -299,7 +420,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -328,7 +449,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -356,7 +477,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -388,7 +509,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -418,7 +539,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -447,7 +568,7 @@ public class InputBasedRuleKeyFactoryTest {
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -487,7 +608,7 @@ public class InputBasedRuleKeyFactoryTest {
   }
 
   RuleKey computeRuleKey(
-      FileHashCache hashCache, SourcePathRuleFinder ruleFinder, Object... objects) {
+      FileHashLoader hashCache, SourcePathRuleFinder ruleFinder, Object... objects) {
     return new TestInputBasedRuleKeyFactory(hashCache, ruleFinder)
         .build(
             new FakeBuildRule("//fake:target") {

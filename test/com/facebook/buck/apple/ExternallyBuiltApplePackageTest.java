@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple;
@@ -24,7 +24,6 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.android.TestAndroidPlatformTargetFactory;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
@@ -61,20 +60,20 @@ public class ExternallyBuiltApplePackageTest {
   private ProjectFilesystem projectFilesystem;
   private BuildRuleParams params;
   private ActionGraphBuilder graphBuilder;
-  private ApplePackageConfigAndPlatformInfo config;
+  private ExternallyBuiltApplePackage.ApplePackageConfigAndPlatformInfo config;
 
   @Before
   public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     bundleLocation = "Fake/Bundle/Location";
-    buildTarget = BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
+    buildTarget = BuildTargetFactory.newInstance("//foo", "package");
     projectFilesystem = new FakeProjectFilesystem();
     params = TestBuildRuleParams.create();
     graphBuilder = new TestActionGraphBuilder();
     config =
-        ApplePackageConfigAndPlatformInfo.of(
-            ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
-            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM);
+        ImmutableApplePackageConfigAndPlatformInfo.of(
+            AppleConfig.ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
+            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_ARMV7_PLATFORM);
   }
 
   @Test
@@ -90,8 +89,6 @@ public class ExternallyBuiltApplePackageTest {
             FakeSourcePath.of(bundleLocation),
             true,
             Optional.empty(),
-            Optional.of(TestAndroidPlatformTargetFactory.create()),
-            Optional.empty(),
             Optional.empty());
     graphBuilder.addToIndex(rule);
     ShellStep step =
@@ -105,7 +102,7 @@ public class ExternallyBuiltApplePackageTest {
         step.getEnvironmentVariables(TestExecutionContext.newInstance()),
         hasEntry(
             "SDKROOT",
-            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM
+            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_ARMV7_PLATFORM
                 .getAppleSdkPaths()
                 .getSdkPath()
                 .toString()));
@@ -123,8 +120,6 @@ public class ExternallyBuiltApplePackageTest {
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
             true,
-            Optional.empty(),
-            Optional.of(TestAndroidPlatformTargetFactory.create()),
             Optional.empty(),
             Optional.empty());
     graphBuilder.addToIndex(rule);
@@ -148,8 +143,6 @@ public class ExternallyBuiltApplePackageTest {
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
             true,
-            Optional.empty(),
-            Optional.of(TestAndroidPlatformTargetFactory.create()),
             Optional.empty(),
             Optional.empty());
     graphBuilder.addToIndex(rule);
@@ -179,8 +172,6 @@ public class ExternallyBuiltApplePackageTest {
                 FakeSourcePath.of("Fake/Bundle/Location"),
                 true,
                 Optional.empty(),
-                Optional.of(TestAndroidPlatformTargetFactory.create()),
-                Optional.empty(),
                 Optional.empty());
     assertNotEquals(
         newRuleKeyFactory().build(packageWithVersion.apply("real")),
@@ -203,8 +194,6 @@ public class ExternallyBuiltApplePackageTest {
                         .withAppleSdk(config.getPlatform().getAppleSdk().withVersion(input))),
                 FakeSourcePath.of("Fake/Bundle/Location"),
                 true,
-                Optional.empty(),
-                Optional.of(TestAndroidPlatformTargetFactory.create()),
                 Optional.empty(),
                 Optional.empty());
     assertNotEquals(

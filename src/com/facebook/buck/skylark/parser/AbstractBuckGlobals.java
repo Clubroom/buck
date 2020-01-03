@@ -1,27 +1,34 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.skylark.parser;
 
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.starlark.compatible.BuckStarlark;
+import com.facebook.buck.core.starlark.knowntypes.KnownUserDefinedRuleTypes;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.skylark.function.SkylarkNativeModule;
+import com.facebook.buck.skylark.function.SkylarkBuiltInProviders;
+import com.facebook.buck.skylark.function.SkylarkFunctionModule;
+import com.facebook.buck.skylark.function.SkylarkProviderFunction;
 import com.facebook.buck.skylark.function.SkylarkRuleFunctions;
+import com.facebook.buck.skylark.function.attr.AttrModule;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.packages.StructProvider;
 import com.google.devtools.build.lib.syntax.BaseFunction;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
@@ -31,7 +38,6 @@ import com.google.devtools.build.lib.syntax.Environment.GlobalFrame;
 import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.MethodLibrary;
 import com.google.devtools.build.lib.syntax.Runtime;
-import com.google.devtools.build.lib.syntax.StarlarkSemantics;
 import org.immutables.value.Value;
 import org.immutables.value.Value.Lazy;
 
@@ -56,6 +62,12 @@ abstract class AbstractBuckGlobals {
     GlobalFrame globals = Environment.DEFAULT_GLOBALS;
   }
 
+  abstract LoadingCache<String, Label> getLabelCache();
+
+  abstract SkylarkFunctionModule getSkylarkFunctionModule();
+
+  abstract KnownUserDefinedRuleTypes getKnownUserDefinedRuleTypes();
+
   /** Always disable implicit native imports in skylark rules, they should utilize native.foo */
   @Lazy
   Environment.GlobalFrame getBuckLoadContextGlobals() {
@@ -63,9 +75,23 @@ abstract class AbstractBuckGlobals {
     addBuckGlobals(builder);
     builder.put("native", getNativeModule());
     builder.put("struct", StructProvider.STRUCT);
-    Runtime.setupSkylarkLibrary(builder, new SkylarkRuleFunctions());
+    if (getEnableUserDefinedRules()) {
+      Runtime.setupSkylarkLibrary(builder, new SkylarkRuleFunctions(getLabelCache()));
+      Runtime.setupSkylarkLibrary(builder, new AttrModule());
+      builder.putAll(SkylarkBuiltInProviders.PROVIDERS);
+    } else {
+      // TODO(T48021397): provider() has some legacy behavior we'll need to migrate. The more
+      // correct provider() is made available for user-defined rules in
+      Runtime.setupSkylarkLibrary(builder, new SkylarkProviderFunction());
+    }
     return GlobalFrame.createForBuiltins(builder.build());
   }
+
+  /**
+   * @return Whether or not modules, providers, and other functions for user defined rules should be
+   *     exported into .bzl files' execution environment
+   */
+  abstract boolean getEnableUserDefinedRules();
 
   /** Disable implicit native rules depending on configuration */
   @Lazy
@@ -75,7 +101,7 @@ abstract class AbstractBuckGlobals {
     if (!getDisableImplicitNativeRules()) {
       builder.putAll(getBuckRuleFunctions());
     }
-    Runtime.setupSkylarkLibrary(builder, SkylarkNativeModule.NATIVE_MODULE);
+    Runtime.setupSkylarkLibrary(builder, getSkylarkFunctionModule());
     addNativeModuleFunctions(builder);
     return GlobalFrame.createForBuiltins(builder.build());
   }
@@ -119,10 +145,10 @@ abstract class AbstractBuckGlobals {
   private void addNativeModuleFunctions(ImmutableMap.Builder<String, Object> builder) {
     for (String nativeFunction :
         FuncallExpression.getMethodNames(
-            StarlarkSemantics.DEFAULT_SEMANTICS, SkylarkNativeModule.class)) {
+            BuckStarlark.BUCK_STARLARK_SEMANTICS, getSkylarkFunctionModule().getClass())) {
       builder.put(
           nativeFunction,
-          FuncallExpression.getBuiltinCallable(SkylarkNativeModule.NATIVE_MODULE, nativeFunction));
+          FuncallExpression.getBuiltinCallable(getSkylarkFunctionModule(), nativeFunction));
     }
   }
 

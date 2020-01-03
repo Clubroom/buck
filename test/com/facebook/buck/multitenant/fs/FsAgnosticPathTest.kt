@@ -1,20 +1,23 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.multitenant.fs
 
+import java.nio.file.FileSystems
+import java.nio.file.Paths
 import org.hamcrest.Matchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,7 +29,7 @@ import org.junit.rules.ExpectedException
 
 class FsAgnosticPathTest {
     @get:Rule
-    val thrown = ExpectedException.none()
+    val thrown: ExpectedException = ExpectedException.none()
 
     @Test
     fun emptyPathIsOk() {
@@ -90,56 +93,56 @@ class FsAgnosticPathTest {
     @Test
     fun invalidSingleDotPath() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'.' contained illegal path component: '.'")
+        thrown.expectMessage("dot in path")
         FsAgnosticPath.of(".")
     }
 
     @Test
     fun invalidDoubleDotPath() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'..' contained illegal path component: '..'")
+        thrown.expectMessage("dot-dot in path")
         FsAgnosticPath.of("..")
     }
 
     @Test
     fun invalidSlashOnlyPath() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'/' must be relative but starts with '/'")
+        thrown.expectMessage("path must not start with slash")
         FsAgnosticPath.of("/")
     }
 
     @Test
     fun invalidAbsolutePath() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'/foo/bar' must be relative but starts with '/'")
+        thrown.expectMessage("path must not start with slash")
         FsAgnosticPath.of("/foo/bar")
     }
 
     @Test
     fun invalidPathWithTrailingSlash() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'foo/bar/' cannot have a trailing slash")
+        thrown.expectMessage("must not end with slash")
         FsAgnosticPath.of("foo/bar/")
     }
 
     @Test
     fun invalidPathWithDoubleSlash() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'foo//bar' contained an empty path component")
+        thrown.expectMessage("two slashes")
         FsAgnosticPath.of("foo//bar")
     }
 
     @Test
     fun invalidPathWithDotComponent() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'foo/./bar' contained illegal path component: '.'")
+        thrown.expectMessage("dot in path")
         FsAgnosticPath.of("foo/./bar")
     }
 
     @Test
     fun invalidPathWithDoubleDotComponent() {
         thrown.expect(IllegalArgumentException::class.java)
-        thrown.expectMessage("'foo/../bar' contained illegal path component: '..'")
+        thrown.expectMessage("dot-dot in path")
         FsAgnosticPath.of("foo/../bar")
     }
 
@@ -186,5 +189,23 @@ class FsAgnosticPathTest {
         val b = FsAgnosticPath.of("baz/buzz")
         assertEquals(FsAgnosticPath.of("foo/bar/baz/buzz"), a.resolve(b))
         assertEquals(FsAgnosticPath.of("baz/buzz/foo/bar"), b.resolve(a))
+    }
+
+    @Test
+    fun toPath() {
+        val empty = FsAgnosticPath.of("")
+        val foo = FsAgnosticPath.of("foo")
+        val fooBar = FsAgnosticPath.of("foo/bar")
+        val fooBarBaz = FsAgnosticPath.of("foo/bar/baz")
+
+        val fooPath = Paths.get("foo")
+        val fooBarPath = fooPath.resolve(Paths.get("bar"))
+        val fooBarBazPath = fooBarPath.resolve(Paths.get("baz"))
+
+        val fileSystem = FileSystems.getDefault()
+        assertEquals(empty.toPath(fileSystem), Paths.get(""))
+        assertEquals(foo.toPath(fileSystem), fooPath)
+        assertEquals(fooBar.toPath(fileSystem), fooBarPath)
+        assertEquals(fooBarBaz.toPath(fileSystem), fooBarBazPath)
     }
 }

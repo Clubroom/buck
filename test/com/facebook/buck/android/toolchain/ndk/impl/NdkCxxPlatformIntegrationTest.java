@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.toolchain.ndk.impl;
@@ -23,10 +23,12 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AndroidBuckConfig;
+import com.facebook.buck.android.AndroidTestUtils;
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
@@ -74,16 +76,16 @@ import org.junit.runners.Parameterized;
 public class NdkCxxPlatformIntegrationTest {
 
   @Parameterized.Parameters(name = "{0},{1},{2}")
-  public static Collection<Object[]> data() {
+  public static Collection<Object[]> data() throws IOException {
     ImmutableList.Builder<TargetCpuType> targetCpuTypes = ImmutableList.builder();
-    if (AssumeAndroidPlatform.isArmAvailable()) {
+    if (AssumeAndroidPlatform.getForDefaultFilesystem().isArmAvailable()) {
       targetCpuTypes.add(TargetCpuType.ARM);
     }
     targetCpuTypes.add(
         TargetCpuType.ARMV7, TargetCpuType.ARM64, TargetCpuType.X86, TargetCpuType.X86_64);
     List<Object[]> data = new ArrayList<>();
     for (TargetCpuType targetCpuType : targetCpuTypes.build()) {
-      if (AssumeAndroidPlatform.isGnuStlAvailable()) {
+      if (AssumeAndroidPlatform.getForDefaultFilesystem().isGnuStlAvailable()) {
         data.add(new Object[] {NdkCompilerType.GCC, NdkCxxRuntime.GNUSTL, targetCpuType});
         // We don't support 64-bit clang yet.
         if (targetCpuType != TargetCpuType.ARM64 && targetCpuType != TargetCpuType.X86_64) {
@@ -120,12 +122,10 @@ public class NdkCxxPlatformIntegrationTest {
                 + "  compiler = %s\n"
                 + "  gcc_version = 4.9\n"
                 + "  cxx_runtime = %s\n"
-                + "  cpu_abis = "
-                + architectures
-                + "\n"
-                + "  app_platform = android-21\n",
-            compiler,
-            cxxRuntime),
+                + "  cpu_abis = %s\n"
+                + "  app_platform = android-21\n"
+                + "   ndk_version = %s\n",
+            compiler, cxxRuntime, architectures, AndroidTestUtils.TARGET_NDK_VERSION),
         ".buckconfig");
     return workspace;
   }
@@ -143,9 +143,9 @@ public class NdkCxxPlatformIntegrationTest {
   }
 
   @Before
-  public void setUp() {
-    AssumeAndroidPlatform.assumeNdkIsAvailable();
-    if (AssumeAndroidPlatform.isArmAvailable()) {
+  public void setUp() throws Exception {
+    AssumeAndroidPlatform.getForDefaultFilesystem().assumeNdkIsAvailable();
+    if (AssumeAndroidPlatform.getForDefaultFilesystem().isArmAvailable()) {
       architectures = "arm, armv7, arm64, x86, x86_64";
     } else {
       architectures = "armv7, arm64, x86, x86_64";
@@ -154,6 +154,7 @@ public class NdkCxxPlatformIntegrationTest {
 
   @Test
   public void runtimeSupportsStl() throws IOException {
+    assumeFalse(AssumeAndroidPlatform.getForDefaultFilesystem().isUnifiedHeadersAvailable());
     assumeTrue(
         "libcxx is unsupported with this ndk",
         NdkCxxPlatforms.isSupportedConfiguration(getNdkRoot(), cxxRuntime));
@@ -184,7 +185,11 @@ public class NdkCxxPlatformIntegrationTest {
     workspace.getBuildLog().assertTargetBuiltLocally(linkTarget);
 
     // Change the app platform and verify that our rulekey has changed.
-    workspace.writeContentsToPath("[ndk]\n  app_platform = android-17", ".buckconfig");
+    workspace.writeContentsToPath(
+        String.format(
+            "[ndk]\n  app_platform = android-17\n   ndk_version = %s\n",
+            AndroidTestUtils.TARGET_NDK_VERSION),
+        ".buckconfig");
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     workspace.getBuildLog().assertTargetBuiltLocally(linkTarget);
   }
@@ -275,8 +280,7 @@ public class NdkCxxPlatformIntegrationTest {
   }
 
   private NdkCxxToolchainPaths createNdkCxxToolchainPaths(
-      ProjectWorkspace workspace, ProjectFilesystem projectFilesystem)
-      throws IOException, InterruptedException {
+      ProjectWorkspace workspace, ProjectFilesystem projectFilesystem) throws IOException {
     Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(projectFilesystem);
     assumeTrue(androidNdk.isPresent());
     String ndkVersion = androidNdk.get().getNdkVersion();

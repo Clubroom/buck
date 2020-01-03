@@ -1,18 +1,19 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.shell;
 
 import static com.facebook.buck.testutil.MoreAsserts.assertIterablesEquals;
@@ -23,6 +24,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -37,7 +39,7 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
@@ -48,10 +50,10 @@ import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -75,13 +77,13 @@ public class ExportFileTest {
   @Before
   public void createFixtures() {
     projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-    target = BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:example.html");
+    target = BuildTargetFactory.newInstance("//:example.html");
   }
 
   @Test
   public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     ExportFile exportFile = new ExportFileBuilder(target).build(graphBuilder, projectFilesystem);
 
     List<Step> steps =
@@ -93,12 +95,13 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "rm -f -r " + Paths.get("buck-out/gen/example.html"),
-            "mkdir -p " + Paths.get("buck-out/gen/example.html"),
+            "rm -f -r " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
+            "mkdir -p " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
             "cp "
                 + projectFilesystem.resolve("example.html")
                 + " "
-                + Paths.get("buck-out/gen/example.html/example.html")),
+                + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s")
+                    .resolve("example.html")),
         steps,
         TestExecutionContext.newInstance());
     assertEquals(
@@ -109,7 +112,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetOutToNameParamValueIfSrcIsSet() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     ExportFile exportFile =
         new ExportFileBuilder(target).setOut("fish").build(graphBuilder, projectFilesystem);
 
@@ -122,12 +125,12 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "rm -f -r " + Paths.get("buck-out/gen/example.html"),
-            "mkdir -p " + Paths.get("buck-out/gen/example.html"),
+            "rm -f -r " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
+            "mkdir -p " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
             "cp "
                 + projectFilesystem.resolve("example.html")
                 + " "
-                + Paths.get("buck-out/gen/example.html/fish")),
+                + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s").resolve("fish")),
         steps,
         TestExecutionContext.newInstance());
     assertEquals(
@@ -138,7 +141,7 @@ public class ExportFileTest {
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     ExportFile exportFile =
         new ExportFileBuilder(target)
             .setSrc(PathSourcePath.of(projectFilesystem, Paths.get("chips")))
@@ -154,12 +157,12 @@ public class ExportFileTest {
     MoreAsserts.assertSteps(
         "The output directory should be created and then the file should be copied there.",
         ImmutableList.of(
-            "rm -f -r " + Paths.get("buck-out/gen/example.html"),
-            "mkdir -p " + Paths.get("buck-out/gen/example.html"),
+            "rm -f -r " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
+            "mkdir -p " + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
             "cp "
                 + projectFilesystem.resolve("chips")
                 + " "
-                + Paths.get("buck-out/gen/example.html/fish")),
+                + BuildTargetPaths.getGenPath(projectFilesystem, target, "%s").resolve("fish")),
         steps,
         TestExecutionContext.newInstance());
     assertEquals(
@@ -219,10 +222,11 @@ public class ExportFileTest {
   @Test
   public void modifyingTheContentsOfTheFileChangesTheRuleKey() throws Exception {
     Path root = Files.createTempDirectory("root");
-    FakeProjectFilesystem filesystem = new FakeProjectFilesystem(root);
+    FakeProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), root);
     Path temp = Paths.get("example_file");
 
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -261,7 +265,7 @@ public class ExportFileTest {
   @Test
   public void referenceModeUsesUnderlyingSourcePath() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     SourcePath src = FakeSourcePath.of(projectFilesystem, "source");
     ExportFile exportFile =
         new ExportFileBuilder(target)
@@ -303,8 +307,7 @@ public class ExportFileTest {
 
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(
-                BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:genrule"),
-                projectFilesystem)
+                BuildTargetFactory.newInstance("//:genrule"), projectFilesystem)
             .setOut("out")
             .setCmd("")
             .build(graphBuilder, projectFilesystem);

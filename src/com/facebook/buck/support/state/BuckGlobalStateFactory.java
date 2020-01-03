@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.support.state;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
@@ -20,14 +21,15 @@ import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.files.DirectoryListCache;
 import com.facebook.buck.core.files.FileTreeCache;
 import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.provider.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -36,15 +38,16 @@ import com.facebook.buck.io.watchman.WatchmanCursor;
 import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.parser.DaemonicParserState;
-import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.config.ParserConfig;
+import com.facebook.buck.parser.manifest.BuildFileManifestCache;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
-import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.WatchedFileHashCache;
+import com.facebook.buck.util.stream.RichStream;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
@@ -71,7 +74,7 @@ public class BuckGlobalStateFactory {
       KnownRuleTypesProvider knownRuleTypesProvider,
       Watchman watchman,
       Optional<WebServer> webServerToReuse,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       TargetConfigurationSerializer targetConfigurationSerializer,
       Clock clock) {
     EventBus fileEventBus = new EventBus("file-change-events");
@@ -98,6 +101,9 @@ public class BuckGlobalStateFactory {
         createDirectoryListCachePerCellMap(fileEventBus);
     LoadingCache<Path, FileTreeCache> fileTreeCachePerRoot =
         createFileTreeCachePerCellMap(fileEventBus);
+    LoadingCache<Path, BuildFileManifestCache> buildFileManifestCachePerRoot =
+        createBuildFileManifestCachePerCellMap(
+            fileEventBus, rootCell.getCellProvider(), rootCell.getSuperRootPath());
     ActionGraphCache actionGraphCache =
         new ActionGraphCache(buildBuckConfig.getMaxActionGraphCacheEntries());
     VersionedTargetGraphCache versionedTargetGraphCache = new VersionedTargetGraphCache();
@@ -152,6 +158,7 @@ public class BuckGlobalStateFactory {
         hashCaches,
         directoryListCachePerRoot,
         fileTreeCachePerRoot,
+        buildFileManifestCachePerRoot,
         fileEventBus,
         webServer,
         persistentWorkerPools,
@@ -188,6 +195,29 @@ public class BuckGlobalStateFactory {
               @Override
               public FileTreeCache load(Path path) {
                 FileTreeCache cache = FileTreeCache.of(path);
+                fileEventBus.register(cache.getInvalidator());
+                return cache;
+              }
+            });
+  }
+
+  /** Create a number of instances of {@link BuildFileManifestCache}, one per each cell */
+  private static LoadingCache<Path, BuildFileManifestCache> createBuildFileManifestCachePerCellMap(
+      EventBus fileEventBus, CellProvider cellProvider, Path superRootPath) {
+    return CacheBuilder.newBuilder()
+        .build(
+            new CacheLoader<Path, BuildFileManifestCache>() {
+              @Override
+              public BuildFileManifestCache load(Path path) {
+                Cell cell = cellProvider.getCellByPath(path);
+                String buildFileName =
+                    cell.getBuckConfigView(ParserConfig.class).getBuildFileName();
+                BuildFileManifestCache cache =
+                    BuildFileManifestCache.of(
+                        superRootPath,
+                        path,
+                        cell.getFilesystem().getPath(buildFileName),
+                        cell.getFilesystemViewForSourceFiles());
                 fileEventBus.register(cache.getInvalidator());
                 return cache;
               }

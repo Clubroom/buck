@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -31,11 +31,11 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.test.rule.ExternalTestSpec;
 import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -48,9 +48,9 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.PackagedResource;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import java.io.IOException;
@@ -121,8 +121,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
     this.toolsCommonJar = toolsCommonJar;
   }
 
-  private static AndroidDevice getSingleDevice(AndroidDevicesHelper adbHelper)
-      throws InterruptedException {
+  private static AndroidDevice getSingleDevice(AndroidDevicesHelper adbHelper) {
     List<AndroidDevice> devices = adbHelper.getDevices(true);
     if (devices.isEmpty()) {
       throw new HumanReadableException("Expecting one android device/emulator to be attached.");
@@ -134,7 +133,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   private static String tryToExtractInstrumentationTestRunnerFromManifest(
-      SourcePathResolver pathResolver, ApkInfo apkInfo) {
+      SourcePathResolverAdapter pathResolver, ApkInfo apkInfo) {
     Path pathToManifest = pathResolver.getAbsolutePath(apkInfo.getManifestPath());
 
     if (!Files.isRegularFile(pathToManifest)) {
@@ -150,7 +149,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   private static String tryToExtractTargetPackageFromManifest(
-      SourcePathResolver pathResolver, ApkInfo apkInfo) {
+      SourcePathResolverAdapter pathResolver, ApkInfo apkInfo) {
     Path pathToManifest = pathResolver.getAbsolutePath(apkInfo.getManifestPath());
 
     if (!Files.isRegularFile(pathToManifest)) {
@@ -205,11 +204,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
 
     AndroidDevicesHelper adb = executionContext.getAndroidDevicesHelper().get();
     AndroidDevice device;
-    try {
-      device = getSingleDevice(adb);
-    } catch (InterruptedException e) {
-      throw new HumanReadableException("Unable to get connected device.");
-    }
+    device = getSingleDevice(adb);
 
     steps.add(
         getInstrumentationStep(
@@ -220,6 +215,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             Optional.empty(),
             getFilterString(options),
             Optional.empty(),
+            options.getEnvironmentOverrides(),
             executionContext.isDebugEnabled(),
             executionContext.isCodeCoverageEnabled(),
             false));
@@ -245,13 +241,14 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   private InstrumentationStep getInstrumentationStep(
-      SourcePathResolver pathResolver,
+      SourcePathResolverAdapter pathResolver,
       String pathToAdbExecutable,
       Optional<Path> directoryForTestResults,
       Optional<String> deviceSerial,
       Optional<Path> instrumentationApkPath,
       Optional<String> classFilterArg,
       Optional<Path> apkUnderTestPath,
+      ImmutableMap<String, String> environmentOverrides,
       boolean debugEnabled,
       boolean codeCoverageEnabled,
       boolean isExternalRun) {
@@ -296,6 +293,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             .setKxmlJarPath(kxml2)
             .setGuavaJarPath(guava)
             .setAndroidToolsCommonJarPath(toolsCommon)
+            .setEnvironmentOverrides(environmentOverrides)
             .build();
 
     return new InstrumentationStep(
@@ -307,8 +305,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
 
   private String getPathForResourceJar(PackagedResource packagedResource) {
     ProjectFilesystem filesystem = this.getProjectFilesystem();
-    Path relativePath = PathSourcePath.of(filesystem, packagedResource.get()).getRelativePath();
-    return filesystem.resolve(relativePath).toString();
+    return filesystem.resolve(packagedResource.get()).toString();
   }
 
   @Override
@@ -349,16 +346,14 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      ExecutionContext context, SourcePathResolver pathResolver, boolean isUsingTestSelectors) {
+      ExecutionContext context,
+      SourcePathResolverAdapter pathResolver,
+      boolean isUsingTestSelectors) {
     return () -> {
       ImmutableList.Builder<TestCaseSummary> summaries = ImmutableList.builder();
       AndroidDevice device;
       AndroidDevicesHelper adbHelper = context.getAndroidDevicesHelper().get();
-      try {
-        device = getSingleDevice(adbHelper);
-      } catch (InterruptedException e) {
-        device = null;
-      }
+      device = getSingleDevice(adbHelper);
       if (device == null) {
         summaries.add(getTestClassAssumedSummary(getBuildTarget().getFullyQualifiedName()));
       } else {
@@ -417,7 +412,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   @Override
-  public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
+  public ExternalTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
       TestRunningOptions testRunningOptions,
       BuildContext buildContext) {
@@ -440,6 +435,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             instrumentationApkPath,
             Optional.empty(),
             apkUnderTestPath,
+            testRunningOptions.getEnvironmentOverrides(),
             executionContext.isDebugEnabled(),
             executionContext.isCodeCoverageEnabled(),
             true);

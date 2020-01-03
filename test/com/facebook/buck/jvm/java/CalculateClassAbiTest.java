@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.java;
@@ -28,16 +28,16 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.hamcrest.Matchers;
@@ -66,7 +66,7 @@ public class CalculateClassAbiTest {
   @Test
   public void ruleKeysChangeIfGeneratedBinaryJarChanges() throws Exception {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup the initial java library.
@@ -85,13 +85,9 @@ public class CalculateClassAbiTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:library-abi");
     CalculateClassAbi calculateAbi =
         CalculateClassAbi.of(
-            target,
-            graphBuilder,
-            filesystem,
-            builder.createBuildRuleParams(graphBuilder),
-            DefaultBuildTargetSourcePath.of(javaLibraryTarget));
+            target, graphBuilder, filesystem, DefaultBuildTargetSourcePath.of(javaLibraryTarget));
 
-    FileHashCache initialHashCache =
+    FileHashLoader initialHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     DefaultRuleKeyFactory initialRuleKeyFactory =
         new TestDefaultRuleKeyFactory(initialHashCache, graphBuilder);
@@ -108,7 +104,7 @@ public class CalculateClassAbiTest {
     graphBuilder = new TestActionGraphBuilder();
     builder.build(graphBuilder, filesystem);
 
-    FileHashCache alteredHashCache =
+    FileHashLoader alteredHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     DefaultRuleKeyFactory alteredRuleKeyFactory =
         new TestDefaultRuleKeyFactory(alteredHashCache, graphBuilder);
@@ -143,13 +139,9 @@ public class CalculateClassAbiTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:library-abi");
     CalculateClassAbi calculateAbi =
         CalculateClassAbi.of(
-            target,
-            ruleFinder,
-            filesystem,
-            builder.createBuildRuleParams(graphBuilder),
-            DefaultBuildTargetSourcePath.of(javaLibraryTarget));
+            target, ruleFinder, filesystem, DefaultBuildTargetSourcePath.of(javaLibraryTarget));
 
-    FileHashCache initialHashCache =
+    FileHashLoader initialHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     DefaultRuleKeyFactory initialRuleKeyFactory =
         new TestDefaultRuleKeyFactory(initialHashCache, ruleFinder);
@@ -165,7 +157,7 @@ public class CalculateClassAbiTest {
     ruleFinder = graphBuilder;
     builder.build(graphBuilder, filesystem);
 
-    FileHashCache alteredHashCache =
+    FileHashLoader alteredHashCache =
         StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
     DefaultRuleKeyFactory alteredRuleKeyFactory =
         new TestDefaultRuleKeyFactory(alteredHashCache, ruleFinder);

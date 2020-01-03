@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.filesystems;
@@ -49,7 +49,7 @@ public class BuckUnixPath implements Path {
   // to have either 1 or three 4-byte fields.
   private final String[] segments;
   private final BuckFileSystem fs;
-  private volatile int hashCode = 0;
+  private int hashCode = 0;
 
   // segments should already be interned.
   private BuckUnixPath(BuckFileSystem fs, String[] segments) {
@@ -71,6 +71,10 @@ public class BuckUnixPath implements Path {
       return fs.getRootDirectory();
     }
     return new BuckUnixPath(fs, splitAndInternPath(path));
+  }
+
+  static BuckUnixPath ofComponentsUnsafe(BuckFileSystem fs, String[] segments) {
+    return new BuckUnixPath(fs, segments);
   }
 
   private static String[] splitAndInternPath(String path) {
@@ -190,6 +194,10 @@ public class BuckUnixPath implements Path {
 
   @Override
   public Path getName(int index) {
+    return new BuckUnixPath(fs, new String[] {getSegment(index)});
+  }
+
+  private String getSegment(int index) {
     if (index < 0) {
       throw new IllegalArgumentException();
     }
@@ -200,7 +208,15 @@ public class BuckUnixPath implements Path {
       throw new IllegalArgumentException();
     }
 
-    return new BuckUnixPath(fs, new String[] {segments[index]});
+    return segments[index];
+  }
+
+  /**
+   * Access path segments. This operation must not be used anywhere except in {@link
+   * com.facebook.buck.core.path.ForwardRelativePath} implementation.
+   */
+  public String[] getSegmentsUnsafe() {
+    return segments;
   }
 
   @Override
@@ -396,6 +412,27 @@ public class BuckUnixPath implements Path {
   }
 
   @Override
+  public int compareTo(Path other) {
+    if (other instanceof BuckUnixPath) {
+      return compareTo((BuckUnixPath) other);
+    }
+    return toString().compareTo(other.toString());
+  }
+
+  /** Lexicographically compares another path to this one */
+  private int compareTo(BuckUnixPath other) {
+    // lexicographic ordering just like {@link String#compareTo}
+    int lim = Math.min(this.segments.length, other.segments.length);
+    for (int i = 0; i < lim; i++) {
+      int res = segments[i].compareTo(other.segments[i]);
+      if (res != 0) {
+        return res;
+      }
+    }
+    return segments.length - other.segments.length;
+  }
+
+  @Override
   public boolean startsWith(Path other) {
     return compareSegmentsFrom(other, true);
   }
@@ -403,6 +440,16 @@ public class BuckUnixPath implements Path {
   @Override
   public boolean endsWith(Path other) {
     return compareSegmentsFrom(other, false);
+  }
+
+  @Override
+  public boolean startsWith(String other) {
+    return startsWith(fs.getPath(other));
+  }
+
+  @Override
+  public boolean endsWith(String other) {
+    return endsWith(fs.getPath(other));
   }
 
   private boolean compareSegmentsFrom(Path other, boolean startOrEnd) {
@@ -422,45 +469,19 @@ public class BuckUnixPath implements Path {
 
     int start = startOrEnd ? 0 : (segments.length - that.segments.length);
 
-    for (int i = 0; i < that.segments.length; i++) {
-      // intentional reference compare
-      if (segments[i + start] != that.segments[i]) {
+    return checkSegmentsEqual(that, start);
+  }
+
+  /** Checks that this path contains the other path's segments starting at start. */
+  private boolean checkSegmentsEqual(BuckUnixPath other, int start) {
+    // Paths are more likely to be different in later segments.
+    for (int i = other.segments.length - 1; i >= 0; i--) {
+      // Intentional reference comparison, these are interned.
+      if (segments[i + start] != other.segments[i]) {
         return false;
       }
     }
-
     return true;
-  }
-
-  @Override
-  public boolean startsWith(String other) {
-    return startsWith(fs.getPath(other));
-  }
-
-  @Override
-  public boolean endsWith(String other) {
-    return endsWith(fs.getPath(other));
-  }
-
-  @Override
-  public int compareTo(Path other) {
-    if (other instanceof BuckUnixPath) {
-      return compareTo((BuckUnixPath) other);
-    }
-    return toString().compareTo(other.toString());
-  }
-
-  /** Lexicographically compares another path to this one */
-  public int compareTo(BuckUnixPath other) {
-    // lexicographic ordering just like {@link String#compareTo}
-    int lim = Math.min(this.segments.length, other.segments.length);
-    for (int i = 0; i < lim; i++) {
-      int res = segments[i].compareTo(other.segments[i]);
-      if (res != 0) {
-        return res;
-      }
-    }
-    return segments.length - other.segments.length;
   }
 
   @Override
@@ -473,19 +494,12 @@ public class BuckUnixPath implements Path {
       return false;
     }
 
-    String[] otherSegments = ((BuckUnixPath) ob).segments;
-    if (segments.length != otherSegments.length) {
+    BuckUnixPath other = (BuckUnixPath) ob;
+    if (segments.length != other.segments.length) {
       return false;
     }
 
-    for (int i = 0; i < segments.length; i++) {
-      // intentional reference compare
-      if (segments[i] != otherSegments[i]) {
-        return false;
-      }
-    }
-
-    return true;
+    return checkSegmentsEqual(other, 0);
   }
 
   @Override
@@ -584,5 +598,12 @@ public class BuckUnixPath implements Path {
         throw new UnsupportedOperationException();
       }
     };
+  }
+
+  /** Top-secret internal accessors for use in {@link com.facebook.buck.io.file.FastPaths}. */
+  public static class InternalsForFastPaths {
+    public static String getNameString(BuckUnixPath path, int index) {
+      return path.getSegment(index);
+    }
   }
 }

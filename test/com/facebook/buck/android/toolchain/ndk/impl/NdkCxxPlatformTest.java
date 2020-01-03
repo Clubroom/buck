@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.toolchain.ndk.impl;
@@ -32,6 +32,7 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformTargetConfiguration;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
+import com.facebook.buck.android.toolchain.ndk.NdkTargetArchAbi;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
 import com.facebook.buck.core.cell.TestCellPathResolver;
@@ -40,8 +41,8 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -183,6 +184,7 @@ public class NdkCxxPlatformTest {
               Paths.get("output"),
               ImmutableList.of(),
               Linker.LinkableDepType.SHARED,
+              Optional.empty(),
               CxxLinkOptions.of(),
               ImmutableList.of(),
               Optional.empty(),
@@ -234,12 +236,16 @@ public class NdkCxxPlatformTest {
   @Test
   public void testDefaultCpuAbisForNdk16() {
     assertEquals(
-        ImmutableSet.of("arm", "armv7", "x86"), NdkCxxPlatforms.getDefaultCpuAbis("16.1.123"));
+        ImmutableSet.of(
+            NdkTargetArchAbi.ARMEABI, NdkTargetArchAbi.ARMEABI_V7A, NdkTargetArchAbi.X86),
+        NdkCxxPlatforms.getDefaultCpuAbis("16.1.123"));
   }
 
   @Test
   public void testDefaultCpuAbisForNdk17() {
-    assertEquals(ImmutableSet.of("armv7", "x86"), NdkCxxPlatforms.getDefaultCpuAbis("17.1.123"));
+    assertEquals(
+        ImmutableSet.of(NdkTargetArchAbi.ARMEABI_V7A, NdkTargetArchAbi.X86),
+        NdkCxxPlatforms.getDefaultCpuAbis("17.1.123"));
   }
 
   @Test
@@ -563,7 +569,7 @@ public class NdkCxxPlatformTest {
                   new AndroidBuckConfig(FakeBuckConfig.builder().build(), platform),
                   filesystem,
                   root,
-                  EmptyTargetConfiguration.INSTANCE,
+                  UnconfiguredTargetConfiguration.INSTANCE,
                   NdkCxxPlatformCompiler.builder()
                       .setType(config.getFirst())
                       .setVersion("gcc-version")
@@ -571,7 +577,7 @@ public class NdkCxxPlatformTest {
                       .build(),
                   NdkCxxRuntime.GNUSTL,
                   NdkCxxRuntimeType.DYNAMIC,
-                  ImmutableSet.of("x86"),
+                  ImmutableSet.of(NdkTargetArchAbi.X86),
                   platform,
                   new AlwaysFoundExecutableFinder(),
                   /* strictToolchainPaths */ false);
@@ -617,7 +623,7 @@ public class NdkCxxPlatformTest {
             new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect()),
             filesystem,
             root,
-            EmptyTargetConfiguration.INSTANCE,
+            UnconfiguredTargetConfiguration.INSTANCE,
             NdkCxxPlatformCompiler.builder()
                 .setType(NdkCompilerType.GCC)
                 .setVersion("gcc-version")
@@ -625,7 +631,7 @@ public class NdkCxxPlatformTest {
                 .build(),
             NdkCxxRuntime.GNUSTL,
             NdkCxxRuntimeType.DYNAMIC,
-            ImmutableSet.of("x86"),
+            ImmutableSet.of(NdkTargetArchAbi.X86),
             Platform.LINUX,
             new AlwaysFoundExecutableFinder(),
             /* strictToolchainPaths */ false);

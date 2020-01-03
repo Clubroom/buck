@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.apple.project;
@@ -34,7 +34,7 @@ import com.facebook.buck.core.description.arg.HasTests;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.UnflavoredBuildTargetView;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -46,11 +46,15 @@ import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.features.apple.common.CopyInXcode;
+import com.facebook.buck.features.apple.common.SchemeActionType;
+import com.facebook.buck.features.apple.common.WorkspaceMetadataWriter;
+import com.facebook.buck.features.apple.common.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.features.apple.common.XcodeWorkspaceConfigDescriptionArg;
 import com.facebook.buck.features.halide.HalideBuckConfig;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
-import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -171,7 +175,7 @@ public class WorkspaceAndProjectGenerator {
                     .getSrcTarget()
                     .map(
                         srcTarget ->
-                            ImmutableSet.<UnflavoredBuildTargetView>builder()
+                            ImmutableSet.<UnflavoredBuildTarget>builder()
                                 .addAll(inputs)
                                 .add(srcTarget.getUnflavoredBuildTarget())
                                 .build())
@@ -216,12 +220,19 @@ public class WorkspaceAndProjectGenerator {
               .getParent()
               .resolve(workspaceName + ".xcodeproj");
     } else {
-      outputDirectory = workspaceBuildTarget.getBasePath();
+      outputDirectory =
+          workspaceBuildTarget
+              .getCellRelativeBasePath()
+              .getPath()
+              .toPath(rootCell.getFilesystem().getFileSystem());
     }
 
     WorkspaceGenerator workspaceGenerator =
         new WorkspaceGenerator(
-            rootCell.getFilesystem(), combinedProject ? "project" : workspaceName, outputDirectory);
+            rootCell.getFilesystem(),
+            combinedProject ? "project" : workspaceName,
+            outputDirectory,
+            appleConfig);
 
     ImmutableMap.Builder<String, XcodeWorkspaceConfigDescriptionArg> schemeConfigsBuilder =
         ImmutableMap.builder();
@@ -382,24 +393,14 @@ public class WorkspaceAndProjectGenerator {
       throws IOException {
     Path path =
         combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + ".xcworkspace");
-    rootCell.getFilesystem().mkdirs(path);
-    ImmutableList<String> requiredTargetsStrings =
-        getRequiredBuildTargets().stream()
-            .map(Object::toString)
-            .sorted()
-            .collect(ImmutableList.toImmutableList());
-    ImmutableMap<String, Object> data =
-        ImmutableMap.of(
-            "required-targets",
-            requiredTargetsStrings,
-            "xcconfig-paths",
+    WorkspaceMetadataWriter workspaceMetadataWriter =
+        new WorkspaceMetadataWriter(
+            "1",
+            getRequiredBuildTargets(),
             getXcconfigPaths(),
-            "copy-in-xcode",
-            getFilesToCopyInXcode());
-    String jsonString = ObjectMappers.WRITER.writeValueAsString(data);
-    rootCell
-        .getFilesystem()
-        .writeContentsToPath(jsonString, path.resolve("buck-project.meta.json"));
+            getFilesToCopyInXcode(),
+            rootCell.getFilesystem());
+    workspaceMetadataWriter.writeToWorkspaceAtPath(path);
   }
 
   private void generateProjects(
@@ -447,7 +448,7 @@ public class WorkspaceAndProjectGenerator {
         ImmutableMultimap.builder();
     for (TargetNode<?> targetNode : projectGraph.getNodes()) {
       BuildTarget buildTarget = targetNode.getBuildTarget();
-      projectCellToBuildTargetsBuilder.put(rootCell.getCell(buildTarget), buildTarget);
+      projectCellToBuildTargetsBuilder.put(rootCell.getCell(buildTarget.getCell()), buildTarget);
     }
     ImmutableMultimap<Cell, BuildTarget> projectCellToBuildTargets =
         projectCellToBuildTargetsBuilder.build();
@@ -458,7 +459,12 @@ public class WorkspaceAndProjectGenerator {
       ImmutableSet<BuildTarget> cellRules =
           ImmutableSet.copyOf(projectCellToBuildTargets.get(projectCell));
       for (BuildTarget buildTarget : cellRules) {
-        projectDirectoryToBuildTargetsBuilder.put(buildTarget.getBasePath(), buildTarget);
+        projectDirectoryToBuildTargetsBuilder.put(
+            buildTarget
+                .getCellRelativeBasePath()
+                .getPath()
+                .toPath(rootCell.getFilesystem().getFileSystem()),
+            buildTarget);
       }
       ImmutableMultimap<Path, BuildTarget> projectDirectoryToBuildTargets =
           projectDirectoryToBuildTargetsBuilder.build();
@@ -923,11 +929,13 @@ public class WorkspaceAndProjectGenerator {
                         new HumanReadableException(
                             "apple_bundle rules without binary attribute are not supported."));
         Preconditions.checkState(
-            binaryTarget.getBasePath().equals(projectTargetNode.getBuildTarget().getBasePath()),
+            binaryTarget
+                .getCellRelativeBasePath()
+                .equals(projectTargetNode.getBuildTarget().getCellRelativeBasePath()),
             "apple_bundle target %s contains reference to binary %s outside base path %s",
             projectTargetNode.getBuildTarget(),
             appleBundleDescriptionArg.getBinary(),
-            projectTargetNode.getBuildTarget().getBasePath());
+            projectTargetNode.getBuildTarget().getCellRelativeBasePath());
         binaryTargetsInsideBundlesBuilder.add(binaryTarget);
       }
     }
@@ -1145,7 +1153,11 @@ public class WorkspaceAndProjectGenerator {
           pbxTargetToBuildTarget.get(project.getTargets().get(0));
       BuildTarget buildTarget = buildTargets.iterator().next();
       Path projectOutputDirectory =
-          buildTarget.getBasePath().resolve(project.getName() + ".xcodeproj");
+          buildTarget
+              .getCellRelativeBasePath()
+              .getPath()
+              .toPath(rootCell.getFilesystem().getFileSystem())
+              .resolve(project.getName() + ".xcodeproj");
 
       SchemeGenerator schemeGenerator =
           buildSchemeGenerator(

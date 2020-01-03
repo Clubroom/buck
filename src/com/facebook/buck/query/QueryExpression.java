@@ -31,8 +31,8 @@
 package com.facebook.buck.query;
 
 import com.facebook.buck.core.model.QueryTarget;
-import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
+import java.util.Set;
 
 /**
  * Base class for expressions in the Buck query language.
@@ -72,7 +72,7 @@ public abstract class QueryExpression<NODE_TYPE> {
    *
    * <p>Failures resulting from evaluation of an ill-formed query cause QueryException to be thrown.
    */
-  abstract <OUTPUT_TYPE extends QueryTarget> ImmutableSet<OUTPUT_TYPE> eval(
+  abstract <OUTPUT_TYPE extends QueryTarget> Set<OUTPUT_TYPE> eval(
       QueryEvaluator<NODE_TYPE> evaluator, QueryEnvironment<NODE_TYPE> env) throws QueryException;
 
   /**
@@ -89,7 +89,7 @@ public abstract class QueryExpression<NODE_TYPE> {
   public abstract void traverse(Visitor<NODE_TYPE> visitor);
 
   /** Returns a set of all targets referenced from literals within this query expression. */
-  public ImmutableSet<QueryTarget> getTargets(QueryEnvironment<NODE_TYPE> env) {
+  public Set<QueryTarget> getTargets(QueryEnvironment<NODE_TYPE> env) {
     QueryTargetCollector<NODE_TYPE> collector = new QueryTargetCollector<NODE_TYPE>(env);
     traverse(collector);
     return collector.getTargets();

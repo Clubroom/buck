@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.swift.toolchain;
@@ -35,9 +35,17 @@ interface AbstractSwiftPlatform {
 
   /**
    * @return A set of directories which contain the Swift runtime as dynamic libraries. On macOS,
-   *     the directory will contain libs like libswiftCore.dylib and others.
+   *     the directory will contain libs like libswiftCore.dylib and others. The libs will be passed
+   *     to swift-stdlib-tool for inclusion in the app bundle.
    */
-  Set<Path> getSwiftRuntimePaths();
+  Set<Path> getSwiftRuntimePathsForBundling();
+
+  /**
+   * @return A set of directories which contain the Swift runtime as dynamic libraries. On macOS,
+   *     the directory will contain the .tbd libs like libSwiftCore.tbd and others. The libs will be
+   *     passed during the link step.
+   */
+  Set<Path> getSwiftRuntimePathsForLinking();
 
   /**
    * @return A set of directories which contain the Swift runtime as static libraries. On macOS, the
@@ -51,4 +59,10 @@ interface AbstractSwiftPlatform {
    *     "@executable_path/Frameworks" is a common rpath.
    */
   ImmutableList<Path> getSwiftSharedLibraryRunPaths();
+
+  /**
+   * @return Structure that represents the architecture target the swift module is built for e.g.
+   *     x86_64-apple-ios9.0
+   */
+  SwiftTargetTriple getSwiftTarget();
 }

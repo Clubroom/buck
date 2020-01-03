@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -33,8 +33,8 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -48,7 +48,7 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
@@ -61,7 +61,7 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.cxx.toolchain.ToolType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -73,12 +73,13 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.sha1.Sha1HashCode;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -137,13 +138,13 @@ public class CxxPrecompiledHeaderRuleTest {
       new DefaultTargetNodeToBuildRuleTransformer();
 
   public final ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(transformer);
-  public final SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+  public final SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
   public final BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
 
   public final Compiler compiler =
       CxxPlatformUtils.DEFAULT_PLATFORM
           .getCxx()
-          .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE);
+          .resolve(graphBuilder, UnconfiguredTargetConfiguration.INSTANCE);
 
   public BuildTarget newTarget(String fullyQualifiedName) {
     return BuildTargetFactory.newInstance(fullyQualifiedName);
@@ -421,13 +422,17 @@ public class CxxPrecompiledHeaderRuleTest {
     CxxPrecompiledHeader pch = foundPCH;
 
     ImmutableList<SourcePath> binObjects = ImmutableList.of(FakeSourcePath.of(filesystem, "bin.o"));
-    ImmutableList<NativeLinkable> nativeLinkableDeps =
-        ImmutableList.<NativeLinkable>builder()
+    ImmutableList<NativeLinkableGroup> nativeLinkableGroupDeps =
+        ImmutableList.<NativeLinkableGroup>builder()
             .add(pchTemplate)
             .addAll(
-                RichStream.from(pch.getBuildDeps()).filter(NativeLinkable.class).toImmutableList())
+                RichStream.from(pch.getBuildDeps())
+                    .filter(NativeLinkableGroup.class)
+                    .toImmutableList())
             .addAll(
-                RichStream.from(lib.getBuildDeps()).filter(NativeLinkable.class).toImmutableList())
+                RichStream.from(lib.getBuildDeps())
+                    .filter(NativeLinkableGroup.class)
+                    .toImmutableList())
             .build();
     CxxLink binLink =
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
@@ -442,8 +447,11 @@ public class CxxPrecompiledHeaderRuleTest {
             Paths.get("tmp/bin.prog"),
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
-            nativeLinkableDeps,
+            Iterables.transform(
+                nativeLinkableGroupDeps,
+                g -> g.getNativeLinkable(platformSupportingPch, graphBuilder)),
             Optional.empty(), // cxxRuntimeType,
             Optional.empty(), // bundleLoader,
             ImmutableSet.of(), // blacklist,
@@ -566,12 +574,12 @@ public class CxxPrecompiledHeaderRuleTest {
   }
 
   @Test
-  public void successfulBuildWithPchHavingNoDeps() throws Exception {
+  public void successfulBuildWithPchHavingNoDeps() {
     workspace.runBuckBuild("//basic_tests:main").assertSuccess();
   }
 
   @Test
-  public void successfulBuildWithPchHavingDeps() throws Exception {
+  public void successfulBuildWithPchHavingDeps() {
     workspace.runBuckBuild("//deps_test:bin").assertSuccess();
   }
 

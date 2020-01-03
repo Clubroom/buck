@@ -37,9 +37,9 @@ import com.facebook.buck.query.QueryEnvironment.QueryFunction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -86,15 +86,15 @@ public class DepsFunction<T extends QueryTarget> implements QueryFunction<T, T> 
       Consumer<T> consumer)
       throws QueryException {
     for (T target : targets) {
-      ImmutableSet<T> deps =
+      Set<T> deps =
           depsExpression.eval(
               new NoopQueryEvaluator<T>(),
               new TargetVariablesQueryEnvironment<T>(
                   ImmutableMap.of(
                       FirstOrderDepsFunction.NAME,
-                      ImmutableSet.copyOf(env.getFwdDeps(ImmutableList.of(target))),
+                      env.getFwdDeps(ImmutableList.of(target)),
                       "@this",
-                      ImmutableSet.of(target)),
+                      Collections.singleton(target)),
                   env));
       deps.forEach(consumer);
     }
@@ -106,10 +106,10 @@ public class DepsFunction<T extends QueryTarget> implements QueryFunction<T, T> 
    * supplied) is reached.
    */
   @Override
-  public ImmutableSet<T> eval(
+  public Set<T> eval(
       QueryEvaluator<T> evaluator, QueryEnvironment<T> env, ImmutableList<Argument<T>> args)
       throws QueryException {
-    ImmutableSet<T> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
+    Set<T> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
     int depthBound = args.size() > 1 ? args.get(1).getInteger() : Integer.MAX_VALUE;
     Optional<QueryExpression<T>> deps =
         args.size() > 2 ? Optional.of(args.get(2).getExpression()) : Optional.empty();
@@ -141,7 +141,7 @@ public class DepsFunction<T extends QueryTarget> implements QueryFunction<T, T> 
       }
       current = next;
     }
-    return ImmutableSet.copyOf(result);
+    return result;
   }
 
   /**
@@ -168,7 +168,7 @@ public class DepsFunction<T extends QueryTarget> implements QueryFunction<T, T> 
     }
 
     @Override
-    public ImmutableSet<T> eval(
+    public Set<T> eval(
         QueryEvaluator<T> evaluator, QueryEnvironment<T> env, ImmutableList<Argument<T>> args) {
       Preconditions.checkArgument(args.isEmpty());
       return env.resolveTargetVariable(getName());
@@ -195,12 +195,12 @@ public class DepsFunction<T extends QueryTarget> implements QueryFunction<T, T> 
 
     @Override
     @SuppressWarnings("unchecked")
-    public ImmutableSet<OUTPUT_TYPE> eval(
+    public Set<OUTPUT_TYPE> eval(
         QueryEvaluator<ENV_NODE_TYPE> evaluator,
         QueryEnvironment<ENV_NODE_TYPE> env,
         ImmutableList<Argument<ENV_NODE_TYPE>> args) {
       Preconditions.checkArgument(args.size() == 1);
-      return (ImmutableSet<OUTPUT_TYPE>) env.resolveTargetVariable(args.get(0).getWord());
+      return (Set<OUTPUT_TYPE>) env.resolveTargetVariable(args.get(0).getWord());
     }
   }
 }

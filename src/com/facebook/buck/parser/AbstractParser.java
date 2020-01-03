@@ -1,55 +1,56 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.DependencyStack;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.targetgraph.ImmutableTargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversal;
-import com.facebook.buck.core.util.graph.GraphTraversable;
+import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversalWithPayloadAndDependencyStack;
+import com.facebook.buck.core.util.graph.CycleException;
+import com.facebook.buck.core.util.graph.GraphTraversableWithPayloadAndDependencyStack;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
+import com.facebook.buck.parser.spec.TargetNodeSpec;
+import com.facebook.buck.parser.temporarytargetuniquenesschecker.TemporaryUnconfiguredTargetToTargetUniquenessChecker;
 import com.facebook.buck.util.MoreMaps;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -64,17 +65,14 @@ abstract class AbstractParser implements Parser {
   protected final PerBuildStateFactory perBuildStateFactory;
   protected final DaemonicParserState permState;
   protected final BuckEventBus eventBus;
-  protected final Supplier<ImmutableList<String>> targetPlatforms;
 
   AbstractParser(
       DaemonicParserState daemonicParserState,
       PerBuildStateFactory perBuildStateFactory,
-      BuckEventBus eventBus,
-      Supplier<ImmutableList<String>> targetPlatforms) {
+      BuckEventBus eventBus) {
     this.perBuildStateFactory = perBuildStateFactory;
     this.permState = daemonicParserState;
     this.eventBus = eventBus;
-    this.targetPlatforms = targetPlatforms;
   }
 
   @Override
@@ -99,95 +97,48 @@ abstract class AbstractParser implements Parser {
       PerBuildState perBuildState,
       Cell cell,
       Path buildFile,
-      TargetConfiguration targetConfiguration)
+      Optional<TargetConfiguration> targetConfiguration)
       throws BuildFileParseException {
     return perBuildState.getAllTargetNodes(cell, buildFile, targetConfiguration);
   }
 
   @Override
-  public TargetNode<?> getTargetNode(ParsingContext parsingContext, BuildTarget target)
+  public TargetNode<?> getTargetNode(
+      ParsingContext parsingContext, BuildTarget target, DependencyStack dependencyStack)
       throws BuildFileParseException {
-    try (PerBuildState state =
-        perBuildStateFactory.create(parsingContext, permState, targetPlatforms.get())) {
-      return state.getTargetNode(target);
+    try (PerBuildState state = perBuildStateFactory.create(parsingContext, permState)) {
+      return state.getTargetNode(target, dependencyStack);
     }
   }
 
   @Override
-  public TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
+  public TargetNode<?> getTargetNode(
+      PerBuildState perBuildState, BuildTarget target, DependencyStack dependencyStack)
       throws BuildFileParseException {
-    return perBuildState.getTargetNode(target);
+    return perBuildState.getTargetNode(target, dependencyStack);
   }
 
   @Override
   public ListenableFuture<TargetNode<?>> getTargetNodeJob(
-      PerBuildState perBuildState, BuildTarget target) throws BuildTargetException {
-    return perBuildState.getTargetNodeJob(target);
-  }
-
-  @Nullable
-  @Override
-  public SortedMap<String, Object> getTargetNodeRawAttributes(
-      PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException {
-    Cell owningCell = cell.getCell(targetNode.getBuildTarget());
-    BuildFileManifest buildFileManifest =
-        getTargetNodeRawAttributes(
-            state,
-            owningCell,
-            cell.getBuckConfigView(ParserConfig.class)
-                .getAbsolutePathToBuildFile(
-                    cell, targetNode.getBuildTarget().getUnconfiguredBuildTargetView()));
-    return getTargetFromManifest(targetNode, buildFileManifest);
-  }
-
-  @Override
-  public ListenableFuture<SortedMap<String, Object>> getTargetNodeRawAttributesJob(
-      PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException {
-    Cell owningCell = cell.getCell(targetNode.getBuildTarget());
-    ListenableFuture<BuildFileManifest> buildFileManifestFuture =
-        state.getBuildFileManifestJob(
-            owningCell,
-            cell.getBuckConfigView(ParserConfig.class)
-                .getAbsolutePathToBuildFile(
-                    cell, targetNode.getBuildTarget().getUnconfiguredBuildTargetView()));
-    return Futures.transform(
-        buildFileManifestFuture,
-        buildFileManifest -> getTargetFromManifest(targetNode, buildFileManifest),
-        MoreExecutors.directExecutor());
-  }
-
-  @Nullable
-  private static SortedMap<String, Object> getTargetFromManifest(
-      TargetNode<?> targetNode, BuildFileManifest buildFileManifest) {
-    String shortName = targetNode.getBuildTarget().getShortName();
-
-    if (!buildFileManifest.getTargets().containsKey(shortName)) {
-      return null;
-    }
-
-    SortedMap<String, Object> attributes =
-        new TreeMap<>(buildFileManifest.getTargets().get(shortName));
-    attributes.put(
-        InternalTargetAttributeNames.DIRECT_DEPENDENCIES,
-        targetNode.getParseDeps().stream()
-            .map(Object::toString)
-            .collect(ImmutableList.toImmutableList()));
-    return attributes;
+      PerBuildState perBuildState, BuildTarget target, DependencyStack dependencyStack)
+      throws BuildTargetException {
+    return perBuildState.getTargetNodeJob(target, dependencyStack);
   }
 
   /**
-   * @deprecated Prefer {@link #getTargetNodeRawAttributes(PerBuildState, Cell, TargetNode)} and
-   *     reusing a PerBuildState instance, especially when calling in a loop.
+   * @deprecated Prefer {@link Parser#getTargetNodeRawAttributes(PerBuildState, Cell, TargetNode,
+   *     DependencyStack)} and reusing a PerBuildState instance, especially when calling in a loop.
    */
   @Nullable
   @Deprecated
   @Override
   public SortedMap<String, Object> getTargetNodeRawAttributes(
-      ParsingContext parsingContext, TargetNode<?> targetNode) throws BuildFileParseException {
+      ParsingContext parsingContext, TargetNode<?> targetNode, DependencyStack dependencyStack)
+      throws BuildFileParseException {
 
-    try (PerBuildState state =
-        perBuildStateFactory.create(parsingContext, permState, targetPlatforms.get())) {
-      return getTargetNodeRawAttributes(state, parsingContext.getCell(), targetNode);
+    try (PerBuildState state = perBuildStateFactory.create(parsingContext, permState)) {
+      return getTargetNodeRawAttributes(
+          state, parsingContext.getCell(), targetNode, dependencyStack);
     }
   }
 
@@ -206,40 +157,37 @@ abstract class AbstractParser implements Parser {
   }
 
   @Override
-  public TargetGraph buildTargetGraph(
-      ParsingContext parsingContext, Iterable<BuildTarget> toExplore)
+  public TargetGraphCreationResult buildTargetGraph(
+      ParsingContext parsingContext, ImmutableSet<BuildTarget> toExplore)
       throws IOException, InterruptedException, BuildFileParseException {
-    if (Iterables.isEmpty(toExplore)) {
-      return TargetGraph.EMPTY;
-    }
-
     AtomicLong processedBytes = new AtomicLong();
     try (PerBuildState state =
-        perBuildStateFactory.create(
-            parsingContext, permState, targetPlatforms.get(), processedBytes)) {
+        perBuildStateFactory.create(parsingContext, permState, processedBytes)) {
       return buildTargetGraph(state, toExplore, processedBytes);
     }
   }
 
-  private TargetGraph buildTargetGraph(
-      PerBuildState state, Iterable<BuildTarget> toExplore, AtomicLong processedBytes)
+  private TargetGraphCreationResult buildTargetGraph(
+      PerBuildState state, ImmutableSet<BuildTarget> toExplore, AtomicLong processedBytes)
       throws IOException, InterruptedException, BuildFileParseException {
 
-    if (Iterables.isEmpty(toExplore)) {
-      return TargetGraph.EMPTY;
+    if (toExplore.isEmpty()) {
+      return ImmutableTargetGraphCreationResult.of(TargetGraph.EMPTY, toExplore);
     }
 
     MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
     Map<BuildTarget, TargetNode<?>> index = new HashMap<>();
+    TemporaryUnconfiguredTargetToTargetUniquenessChecker checker =
+        new TemporaryUnconfiguredTargetToTargetUniquenessChecker();
 
     ParseEvent.Started parseStart = ParseEvent.started(toExplore);
     eventBus.post(parseStart);
 
-    GraphTraversable<BuildTarget> traversable =
-        target -> {
+    GraphTraversableWithPayloadAndDependencyStack<BuildTarget, TargetNode<?>> traversable =
+        (target, dependencyStack) -> {
           TargetNode<?> node;
           try {
-            node = state.getTargetNode(target);
+            node = state.getTargetNode(target, dependencyStack);
           } catch (BuildFileParseException e) {
             throw new RuntimeException(e);
           }
@@ -249,43 +197,56 @@ abstract class AbstractParser implements Parser {
           // visitor pattern otherwise.
           // it's also work we need to do anyways. the getTargetNode() result is cached, so that
           // when we come around and re-visit that node there won't actually be any work performed.
-          for (BuildTarget dep : node.getParseDeps()) {
+          for (BuildTarget dep : node.getTotalDeps()) {
             try {
-              state.getTargetNode(dep);
+              state.getTargetNode(dep, dependencyStack.child(dep));
             } catch (BuildFileParseException e) {
               throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
             } catch (HumanReadableException e) {
-              throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
+              if (e.getDependencyStack().isEmpty()) {
+                // we don't have a proper stack, use simple message as fallback
+                throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
+              } else {
+                throw e;
+              }
             }
           }
-          return node.getParseDeps().iterator();
+          return new Pair<>(node, node.getTotalDeps().iterator());
         };
 
-    AcyclicDepthFirstPostOrderTraversal<BuildTarget> targetNodeTraversal =
-        new AcyclicDepthFirstPostOrderTraversal<>(traversable);
+    AcyclicDepthFirstPostOrderTraversalWithPayloadAndDependencyStack<BuildTarget, TargetNode<?>>
+        targetNodeTraversal =
+            new AcyclicDepthFirstPostOrderTraversalWithPayloadAndDependencyStack<>(
+                traversable, DependencyStack::child);
 
     TargetGraph targetGraph = null;
     try {
-      for (BuildTarget target : targetNodeTraversal.traverse(toExplore)) {
-        TargetNode<?> targetNode = state.getTargetNode(target);
+      for (Map.Entry<BuildTarget, Pair<TargetNode<?>, DependencyStack>> targetAndNode :
+          targetNodeTraversal.traverse(toExplore).entrySet()) {
+        BuildTarget target = targetAndNode.getKey();
+        TargetNode<?> targetNode = targetAndNode.getValue().getFirst();
+        DependencyStack dependencyStack = targetAndNode.getValue().getSecond();
 
-        Preconditions.checkNotNull(targetNode, "No target node found for %s", target);
-        assertTargetIsCompatible(state, targetNode);
+        assertTargetIsCompatible(state, targetNode, dependencyStack);
 
         graph.addNode(targetNode);
         MoreMaps.putCheckEquals(index, target, targetNode);
+        checker.addTarget(target, dependencyStack);
         if (target.isFlavored()) {
           BuildTarget unflavoredTarget = target.withoutFlavors();
-          MoreMaps.putCheckEquals(index, unflavoredTarget, state.getTargetNode(unflavoredTarget));
+          MoreMaps.putCheckEquals(
+              index, unflavoredTarget, state.getTargetNode(unflavoredTarget, dependencyStack));
+          // NOTE: do not used uniqueness checked for unflavored target
+          // because `target.withoutFlavors()` does not switch unconfigured target
         }
         for (BuildTarget dep : targetNode.getParseDeps()) {
-          graph.addEdge(targetNode, state.getTargetNode(dep));
+          graph.addEdge(targetNode, state.getTargetNode(dep, dependencyStack.child(dep)));
         }
       }
 
       targetGraph = new TargetGraph(graph, ImmutableMap.copyOf(index));
-      return targetGraph;
-    } catch (AcyclicDepthFirstPostOrderTraversal.CycleException e) {
+      return ImmutableTargetGraphCreationResult.of(targetGraph, toExplore);
+    } catch (CycleException e) {
       throw new HumanReadableException(e.getMessage());
     } catch (RuntimeException e) {
       throw propagateRuntimeCause(e);
@@ -296,36 +257,35 @@ abstract class AbstractParser implements Parser {
   }
 
   @Override
-  public synchronized TargetGraphAndBuildTargets buildTargetGraphWithoutConfigurationTargets(
+  public synchronized TargetGraphCreationResult buildTargetGraphWithoutTopLevelConfigurationTargets(
       ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      TargetConfiguration targetConfiguration)
+      Optional<TargetConfiguration> targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException {
     return buildTargetGraphForTargetNodeSpecs(
         parsingContext, targetNodeSpecs, targetConfiguration, true);
   }
 
   @Override
-  public synchronized TargetGraphAndBuildTargets buildTargetGraphWithConfigurationTargets(
+  public synchronized TargetGraphCreationResult buildTargetGraphWithTopLevelConfigurationTargets(
       ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      TargetConfiguration targetConfiguration)
+      Optional<TargetConfiguration> targetConfiguration)
       throws BuildFileParseException, IOException, InterruptedException {
     return buildTargetGraphForTargetNodeSpecs(
         parsingContext, targetNodeSpecs, targetConfiguration, false);
   }
 
-  private synchronized TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
+  private synchronized TargetGraphCreationResult buildTargetGraphForTargetNodeSpecs(
       ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      TargetConfiguration targetConfiguration,
+      Optional<TargetConfiguration> targetConfiguration,
       boolean excludeConfigurationTargets)
       throws BuildFileParseException, IOException, InterruptedException {
 
     AtomicLong processedBytes = new AtomicLong();
     try (PerBuildState state =
-        perBuildStateFactory.create(
-            parsingContext, permState, targetPlatforms.get(), processedBytes)) {
+        perBuildStateFactory.create(parsingContext, permState, processedBytes)) {
 
       ImmutableSet<BuildTarget> buildTargets =
           collectBuildTargetsFromTargetNodeSpecs(
@@ -334,9 +294,7 @@ abstract class AbstractParser implements Parser {
               targetNodeSpecs,
               targetConfiguration,
               excludeConfigurationTargets);
-      TargetGraph graph = buildTargetGraph(state, buildTargets, processedBytes);
-
-      return TargetGraphAndBuildTargets.of(graph, buildTargets);
+      return buildTargetGraph(state, buildTargets, processedBytes);
     }
   }
 
@@ -344,7 +302,7 @@ abstract class AbstractParser implements Parser {
       ParsingContext parsingContext,
       PerBuildState state,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
-      TargetConfiguration targetConfiguration,
+      Optional<TargetConfiguration> targetConfiguration,
       boolean excludeConfigurationTargets)
       throws InterruptedException;
 
@@ -355,7 +313,8 @@ abstract class AbstractParser implements Parser {
    *     compatible with the target platform.
    */
   @SuppressWarnings("unused")
-  protected void assertTargetIsCompatible(PerBuildState state, TargetNode<?> targetNode) {}
+  protected void assertTargetIsCompatible(
+      PerBuildState state, TargetNode<?> targetNode, DependencyStack dependencyStack) {}
 
   @Override
   public String toString() {

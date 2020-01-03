@@ -1,16 +1,16 @@
-# Copyright 2018-present Facebook, Inc.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
-# Licensed under the Apache License, Version 2.0 (the "License"); you may
-# not use this file except in compliance with the License. You may obtain
-# a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-# License for the specific language governing permissions and limitations
-# under the License.
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import absolute_import, division, print_function, with_statement
 
@@ -68,6 +68,7 @@ from .util import (
     is_in_dir,
     is_special,
 )
+
 
 # When build files are executed, the functions in this file tagged with
 # @provide_for_build will be provided in the build file's local symbol table.
@@ -954,9 +955,9 @@ class BuildFileProcessor(object):
         """
 
         @functools.wraps(real)
-        def wrapper(varname, *arg, **kwargs):
+        def wrapper(_inner_self, varname, *arg, **kwargs):
             self._record_env_var(varname, read(varname))
-            return real(varname, *arg, **kwargs)
+            return real(_inner_self, varname, *arg, **kwargs)
 
         # Save the real function for restoration.
         wrapper._real = real
@@ -995,7 +996,7 @@ class BuildFileProcessor(object):
 
         # Install interceptors into the main ways a user can read the env.
         with self._with_env_interceptor(
-            read, os.environ, "__contains__", "__getitem__", "get"
+            read, os.environ.__class__, "__contains__", "__getitem__", "get"
         ):
             yield
 
@@ -1475,7 +1476,7 @@ class BuildFileProcessor(object):
                             + "function before trying to access the file, e.g.\n"
                             + "'add_build_file_dep('{0}')'\n".format(dep_path)
                             + "The 'add_build_file_dep' function is documented at "
-                            + "https://buckbuild.com/function/add_build_file_dep.html\n"
+                            + "https://buck.build/function/add_build_file_dep.html\n"
                         )
                         self._emit_warning(warning_message, "sandboxing")
 

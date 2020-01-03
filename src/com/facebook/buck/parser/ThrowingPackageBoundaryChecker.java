@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser;
@@ -20,6 +20,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -42,7 +43,11 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
   public void enforceBuckPackageBoundaries(
       Cell targetCell, BuildTarget target, ImmutableSet<Path> paths) {
 
-    Path basePath = target.getBasePath();
+    Path basePath =
+        target
+            .getCellRelativeBasePath()
+            .getPath()
+            .toPath(targetCell.getFilesystem().getFileSystem());
 
     if (!targetCell
         .getBuckConfigView(ParserConfig.class)
@@ -69,7 +74,7 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
         throw new IllegalStateException(
             String.format(
                 "Target '%s' refers to file '%s', which doesn't belong to any package. "
-                    + "More info at:\nhttps://buckbuild.com/about/overview.html\n",
+                    + "More info at:\nhttps://buck.build/about/overview.html\n",
                 target, path));
       }
 
@@ -86,7 +91,7 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
                 + "You should find or create a rule in '%3$s' that references\n"
                 + "'%2$s' and use that in '%1$s'\n"
                 + "instead of directly referencing '%2$s'.\n"
-                + "More info at:\nhttps://buckbuild.com/concept/build_rule.html\n"
+                + "More info at:\nhttps://buck.build/concept/build_rule.html\n"
                 + "\n"
                 + "This issue might also be caused by a bug in buckd's caching.\n"
                 + "Please check whether using `buck kill` resolves it.",

@@ -1,17 +1,17 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -98,7 +99,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricContainsAllResourceDependenciesInResVmArg() throws Exception {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     ImmutableList.Builder<HasAndroidResourceDeps> resDepsBuilder = ImmutableList.builder();
     for (int i = 0; i < 10; i++) {
@@ -124,8 +126,9 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     String result =
-        robolectricTest.getRobolectricResourceDirectoriesArg(
-            graphBuilder.getSourcePathResolver(), resDeps);
+        robolectricTest
+            .getRobolectricTestHelper()
+            .getRobolectricResourceDirectoriesArg(graphBuilder.getSourcePathResolver(), resDeps);
     for (HasAndroidResourceDeps dep : resDeps) {
       // Every value should be a PathSourcePath
       assertTrue(
@@ -136,7 +139,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricContainsAllResourceDependenciesInResVmArgAsFile() throws Exception {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     ImmutableList.Builder<HasAndroidResourceDeps> resDepsBuilder = ImmutableList.builder();
     for (int i = 0; i < 10; i++) {
@@ -169,17 +173,19 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     Path resDirectoriesPath =
-        RobolectricTest.getResourceDirectoriesPath(filesystem, robolectricBuildTarget);
+        RobolectricTestHelper.getResourceDirectoriesPath(filesystem, robolectricBuildTarget);
     String result =
-        robolectricTest.getRobolectricResourceDirectoriesArg(
-            graphBuilder.getSourcePathResolver(), resDeps);
+        robolectricTest
+            .getRobolectricTestHelper()
+            .getRobolectricResourceDirectoriesArg(graphBuilder.getSourcePathResolver(), resDeps);
     assertEquals(
         "-Dbuck.robolectric_res_directories=@" + filesystem.resolve(resDirectoriesPath), result);
   }
 
   @Test
   public void testRobolectricContainsAllResourceDependenciesInAssetVmArgAsFile() throws Exception {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     ImmutableList.Builder<HasAndroidResourceDeps> resDepsBuilder = ImmutableList.builder();
     for (int i = 0; i < 10; i++) {
@@ -213,10 +219,11 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     Path assetDirectoriesPath =
-        RobolectricTest.getAssetDirectoriesPath(filesystem, robolectricBuildTarget);
+        RobolectricTestHelper.getAssetDirectoriesPath(filesystem, robolectricBuildTarget);
     String result =
-        robolectricTest.getRobolectricAssetsDirectories(
-            graphBuilder.getSourcePathResolver(), resDeps);
+        robolectricTest
+            .getRobolectricTestHelper()
+            .getRobolectricAssetsDirectories(graphBuilder.getSourcePathResolver(), resDeps);
     assertEquals(
         "-Dbuck.robolectric_assets_directories=@" + filesystem.resolve(assetDirectoriesPath),
         result);
@@ -224,7 +231,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricResourceDependenciesVmArgHasCorrectFormat() throws Exception {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
     filesystem.mkdirs(Paths.get("res1/values"));
     filesystem.mkdirs(Paths.get("res2/values"));
     filesystem.mkdirs(Paths.get("res3/values"));
@@ -251,18 +259,20 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     String result =
-        robolectricTest.getRobolectricResourceDirectoriesArg(
-            graphBuilder.getSourcePathResolver(),
-            ImmutableList.of(
-                new ResourceRule(FakeSourcePath.of(filesystem, resDep1)),
-                new ResourceRule(FakeSourcePath.of(filesystem, resDep2)),
-                new ResourceRule(null),
-                new ResourceRule(FakeSourcePath.of(filesystem, resDep3)),
-                new ResourceRule(FakeSourcePath.of(filesystem, resDep4))));
+        robolectricTest
+            .getRobolectricTestHelper()
+            .getRobolectricResourceDirectoriesArg(
+                graphBuilder.getSourcePathResolver(),
+                ImmutableList.of(
+                    new ResourceRule(FakeSourcePath.of(filesystem, resDep1)),
+                    new ResourceRule(FakeSourcePath.of(filesystem, resDep2)),
+                    new ResourceRule(null),
+                    new ResourceRule(FakeSourcePath.of(filesystem, resDep3)),
+                    new ResourceRule(FakeSourcePath.of(filesystem, resDep4))));
 
     String expectedVmArgBuilder =
         "-D"
-            + RobolectricTest.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME
+            + RobolectricTestHelper.LIST_OF_RESOURCE_DIRECTORIES_PROPERTY_NAME
             + "="
             + resDep1
             + File.pathSeparator
@@ -274,7 +284,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricThrowsIfResourceDirNotThere() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
@@ -291,9 +302,11 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     try {
-      robolectricTest.getRobolectricResourceDirectoriesArg(
-          graphBuilder.getSourcePathResolver(),
-          ImmutableList.of(new ResourceRule(FakeSourcePath.of(filesystem, "not_there_res"))));
+      robolectricTest
+          .getRobolectricTestHelper()
+          .getRobolectricResourceDirectoriesArg(
+              graphBuilder.getSourcePathResolver(),
+              ImmutableList.of(new ResourceRule(FakeSourcePath.of(filesystem, "not_there_res"))));
       fail("Expected FileNotFoundException");
     } catch (RuntimeException e) {
       assertThat(e.getMessage(), Matchers.containsString("not_there_res"));
@@ -302,7 +315,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricAssetsDependenciesVmArgHasCorrectFormat() throws Exception {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
     filesystem.mkdirs(Paths.get("assets1/svg"));
     filesystem.mkdirs(Paths.get("assets2/xml"));
     filesystem.mkdirs(Paths.get("assets3_to_ignore"));
@@ -327,17 +341,19 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     String result =
-        robolectricTest.getRobolectricAssetsDirectories(
-            graphBuilder.getSourcePathResolver(),
-            ImmutableList.of(
-                new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep1)),
-                new ResourceRule(null, null),
-                new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep2)),
-                new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep3))));
+        robolectricTest
+            .getRobolectricTestHelper()
+            .getRobolectricAssetsDirectories(
+                graphBuilder.getSourcePathResolver(),
+                ImmutableList.of(
+                    new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep1)),
+                    new ResourceRule(null, null),
+                    new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep2)),
+                    new ResourceRule(null, FakeSourcePath.of(filesystem, assetsDep3))));
 
     String expectedVmArgBuilder =
         "-D"
-            + RobolectricTest.LIST_OF_ASSETS_DIRECTORIES_PROPERTY_NAME
+            + RobolectricTestHelper.LIST_OF_ASSETS_DIRECTORIES_PROPERTY_NAME
             + "="
             + assetsDep1
             + File.pathSeparator
@@ -347,7 +363,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void testRobolectricThrowsIfAssetsDirNotThere() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
@@ -364,9 +381,12 @@ public class RobolectricTestRuleTest {
         (RobolectricTest) graphBuilder.requireRule(robolectricBuildTarget);
 
     try {
-      robolectricTest.getRobolectricResourceDirectoriesArg(
-          graphBuilder.getSourcePathResolver(),
-          ImmutableList.of(new ResourceRule(FakeSourcePath.of(filesystem, "not_there_assets"))));
+      robolectricTest
+          .getRobolectricTestHelper()
+          .getRobolectricResourceDirectoriesArg(
+              graphBuilder.getSourcePathResolver(),
+              ImmutableList.of(
+                  new ResourceRule(FakeSourcePath.of(filesystem, "not_there_assets"))));
       fail("Expected FileNotFoundException");
     } catch (RuntimeException e) {
       assertThat(e.getMessage(), Matchers.containsString("not_there_assets"));
@@ -375,7 +395,8 @@ public class RobolectricTestRuleTest {
 
   @Test
   public void runtimeDepsIncludeTransitiveResourcesAndDummyR() {
-    ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem filesystem =
+        new FakeProjectFilesystem(CanonicalCellName.rootCell(), temporaryFolder.getRoot());
 
     BuildTarget resGenRuleTarget = BuildTargetFactory.newInstance("//:res-gen");
     TargetNode<?> resGenRuleNode =

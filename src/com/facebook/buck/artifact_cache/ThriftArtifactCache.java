@@ -1,18 +1,19 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.thrift.ArtifactMetadata;
@@ -33,17 +34,17 @@ import com.facebook.buck.artifact_cache.thrift.FetchResultType;
 import com.facebook.buck.artifact_cache.thrift.PayloadInfo;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.slb.HttpResponse;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -249,8 +250,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
               .equals(fetchResponse.getMetadata().getArtifactPayloadMd5())) {
             String msg =
                 String.format(
-                    "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
-                    fetchResponse.getMetadata().getArtifactPayloadMd5(), readResult.getMd5Hash());
+                    "The artifact fetched from cache for rule key [%s] is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
+                    ruleKey,
+                    fetchResponse.getMetadata().getArtifactPayloadMd5(),
+                    readResult.getMd5Hash());
             LOG.warn(msg);
             return resultBuilder
                 .setCacheResult(CacheResult.error(getName(), getMode(), msg))
@@ -562,6 +565,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
                 getName(), getMode(), String.format("Got bad result of type %s", resultType)));
         return;
       case MISS:
+      case MISS_IN_SLA:
+      case MISS_ONLY_IN_MEMCACHE:
+      case MISS_OUT_SLA:
+      case MISS_UNKNOWN:
         LOG.verbose("Artifact did not exist.");
         builder.setCacheResult(CacheResult.miss());
         return;
@@ -657,8 +664,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     if (!readResult.getMd5Hash().equals(fetchResponse.getMetadata().getArtifactPayloadMd5())) {
       String msg =
           String.format(
-              "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
-              fetchResponse.getMetadata().getArtifactPayloadMd5(), readResult.getMd5Hash());
+              "The artifact fetched from cache for rule key [%s] is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
+              ruleKey,
+              fetchResponse.getMetadata().getArtifactPayloadMd5(),
+              readResult.getMd5Hash());
       LOG.warn(msg);
       builder.setCacheResult(CacheResult.error(getName(), getMode(), msg));
       return;
@@ -677,7 +686,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   private TargetConfiguration getTargetConfigurationFromMetadata(
       ArtifactMetadata artifactMetadata) {
     if (Strings.isNullOrEmpty(artifactMetadata.getConfiguration())) {
-      return EmptyTargetConfiguration.INSTANCE;
+      return UnconfiguredTargetConfiguration.INSTANCE;
     }
     return targetConfigurationSerializer.deserialize(artifactMetadata.getConfiguration());
   }

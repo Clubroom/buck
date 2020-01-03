@@ -1,30 +1,33 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -49,11 +52,14 @@ public class FakeWorkerBuilder
 
   static class FakeWorkerToolRule extends NoopBuildRuleWithDeclaredAndExtraDeps
       implements ProvidesWorkerTool {
-    private final FakeWorkerTool fakeWorkerTool = new FakeWorkerTool();
+    private final FakeWorkerTool fakeWorkerTool;
 
     public FakeWorkerToolRule(
         BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {
       super(buildTarget, projectFilesystem, params);
+      SourcePath sourcePath =
+          ExplicitBuildTargetSourcePath.of(getBuildTarget(), Paths.get("output.fake"));
+      this.fakeWorkerTool = new FakeWorkerTool(sourcePath);
     }
 
     @Override
@@ -66,6 +72,11 @@ public class FakeWorkerBuilder
 
     private final Tool tool = new FakeTool();
     private final HashCode hashCode = HashCode.fromString("0123456789abcdef");
+    @AddToRuleKey private final SourcePath depRule;
+
+    FakeWorkerTool(SourcePath depRule) {
+      this.depRule = depRule;
+    }
 
     @Override
     public Tool getTool() {
@@ -95,12 +106,12 @@ public class FakeWorkerBuilder
 
   private static class FakeTool implements Tool {
     @Override
-    public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
+    public ImmutableList<String> getCommandPrefix(SourcePathResolverAdapter resolver) {
       return ImmutableList.of();
     }
 
     @Override
-    public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+    public ImmutableMap<String, String> getEnvironment(SourcePathResolverAdapter resolver) {
       return ImmutableMap.of();
     }
   }
@@ -123,6 +134,6 @@ public class FakeWorkerBuilder
 
     @BuckStyleImmutable
     @Value.Immutable
-    interface AbstractFakeWorkerDescriptionArg extends CommonDescriptionArg {}
+    interface AbstractFakeWorkerDescriptionArg extends BuildRuleArg {}
   }
 }

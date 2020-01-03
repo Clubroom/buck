@@ -1,27 +1,27 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.support.state;
 
-import com.facebook.buck.command.config.ConfigIgnoredByDaemon;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.toolchain.ComparableToolchain;
 import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.google.common.annotations.VisibleForTesting;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -33,50 +33,9 @@ import java.util.Set;
  * <p>{@link BuckGlobalStateLifecycleManager} for more information about daemon lifecycle.
  */
 class BuckGlobalStateCompatibilityCellChecker {
-  /** Whether or not the cell has changed significantly enough to invalidate caches */
-  enum IsCompatibleForCaching {
-    IS_COMPATIBLE,
-    FILESYSTEM_CHANGED,
-    BUCK_CONFIG_CHANGED,
-    TOOLCHAINS_INCOMPATIBLE,
-  }
-
   private BuckGlobalStateCompatibilityCellChecker() {}
 
-  /**
-   * Compares two cells to figure out if they are equals enough for a purpose of re-using the daemon
-   * global state.
-   *
-   * <p>The check performed by this method is basically a comparison of some subset of information
-   * provided by the cells. Some information provided by the cells is excluded from the comparison,
-   * for example, some configuration options that affect parts of Buck that don't require daemon
-   * restart when these configuration options change.
-   */
-  public static IsCompatibleForCaching areCellsCompatibleForCaching(Cell cell1, Cell cell2) {
-    if (!cell1.getFilesystem().equals(cell2.getFilesystem())) {
-      return IsCompatibleForCaching.FILESYSTEM_CHANGED;
-    }
-    if (!equalsForBuckGlobalStateInvalidation(cell1.getBuckConfig(), cell2.getBuckConfig())) {
-      return IsCompatibleForCaching.BUCK_CONFIG_CHANGED;
-    }
-    if (!areToolchainsCompatibleForCaching(cell1, cell2)) {
-      return IsCompatibleForCaching.TOOLCHAINS_INCOMPATIBLE;
-    }
-    return IsCompatibleForCaching.IS_COMPATIBLE;
-  }
-
-  // This is a hack. A cleaner approach would be to expose a narrow view of the config to any code
-  // that affects the state cached.
-  @VisibleForTesting
-  static boolean equalsForBuckGlobalStateInvalidation(
-      BuckConfig buckConfig1, BuckConfig buckConfig2) {
-    return buckConfig1
-        .getView(ConfigIgnoredByDaemon.class)
-        .getRawConfigForParser()
-        .equals(buckConfig2.getView(ConfigIgnoredByDaemon.class).getRawConfigForParser());
-  }
-
-  private static boolean areToolchainsCompatibleForCaching(Cell cell1, Cell cell2) {
+  static boolean areToolchainsCompatibleForCaching(Cell cell1, Cell cell2) {
     ToolchainProvider toolchainProvider = cell1.getToolchainProvider();
     ToolchainProvider otherToolchainProvider = cell2.getToolchainProvider();
 
@@ -86,7 +45,12 @@ class BuckGlobalStateCompatibilityCellChecker {
         otherToolchainProvider.getToolchainsWithCapability(ComparableToolchain.class));
 
     for (String toolchain : toolchains) {
-      if (!toolchainsStateEqual(toolchain, toolchainProvider, otherToolchainProvider)) {
+      // TODO(nga): use some meaningful toolchain here
+      if (!toolchainsStateEqual(
+          toolchain,
+          UnconfiguredTargetConfiguration.INSTANCE,
+          toolchainProvider,
+          otherToolchainProvider)) {
         return false;
       }
     }
@@ -113,13 +77,18 @@ class BuckGlobalStateCompatibilityCellChecker {
    */
   private static boolean toolchainsStateEqual(
       String toolchain,
+      TargetConfiguration toolchainTargetConfiguration,
       ToolchainProvider toolchainProvider,
       ToolchainProvider otherToolchainProvider) {
 
-    boolean toolchainFailed = toolchainProvider.isToolchainFailed(toolchain);
-    boolean otherToolchainFailed = otherToolchainProvider.isToolchainFailed(toolchain);
-    boolean toolchainCreated = toolchainProvider.isToolchainCreated(toolchain);
-    boolean otherToolchainCreated = otherToolchainProvider.isToolchainCreated(toolchain);
+    boolean toolchainFailed =
+        toolchainProvider.isToolchainFailed(toolchain, toolchainTargetConfiguration);
+    boolean otherToolchainFailed =
+        otherToolchainProvider.isToolchainFailed(toolchain, toolchainTargetConfiguration);
+    boolean toolchainCreated =
+        toolchainProvider.isToolchainCreated(toolchain, toolchainTargetConfiguration);
+    boolean otherToolchainCreated =
+        otherToolchainProvider.isToolchainCreated(toolchain, toolchainTargetConfiguration);
 
     boolean toolchainInstantiated = toolchainFailed || toolchainCreated;
     boolean otherToolchainInstantiated = otherToolchainFailed || otherToolchainCreated;
@@ -130,9 +99,10 @@ class BuckGlobalStateCompatibilityCellChecker {
 
     if (toolchainFailed || otherToolchainFailed) {
       Optional<ToolchainInstantiationException> exception =
-          getFailedToolchainException(toolchainProvider, toolchain);
+          getFailedToolchainException(toolchainProvider, toolchain, toolchainTargetConfiguration);
       Optional<ToolchainInstantiationException> otherException =
-          getFailedToolchainException(otherToolchainProvider, toolchain);
+          getFailedToolchainException(
+              otherToolchainProvider, toolchain, toolchainTargetConfiguration);
 
       return exception.isPresent()
           && otherException.isPresent()
@@ -142,25 +112,30 @@ class BuckGlobalStateCompatibilityCellChecker {
               .equals(otherException.get().getHumanReadableErrorMessage());
     }
 
-    boolean toolchainPresent = toolchainProvider.isToolchainPresent(toolchain);
-    boolean otherToolchainPresent = otherToolchainProvider.isToolchainPresent(toolchain);
+    boolean toolchainPresent =
+        toolchainProvider.isToolchainPresent(toolchain, toolchainTargetConfiguration);
+    boolean otherToolchainPresent =
+        otherToolchainProvider.isToolchainPresent(toolchain, toolchainTargetConfiguration);
 
     // Both toolchains exist, compare them
     if (toolchainPresent && otherToolchainPresent) {
       return toolchainProvider
-          .getByName(toolchain)
-          .equals(otherToolchainProvider.getByName(toolchain));
+          .getByName(toolchain, toolchainTargetConfiguration)
+          .equals(otherToolchainProvider.getByName(toolchain, toolchainTargetConfiguration));
     } else {
       return !toolchainPresent && !otherToolchainPresent;
     }
   }
 
   private static Optional<ToolchainInstantiationException> getFailedToolchainException(
-      ToolchainProvider toolchainProvider, String toolchainName) {
-    if (toolchainProvider.isToolchainPresent(toolchainName)) {
+      ToolchainProvider toolchainProvider,
+      String toolchainName,
+      TargetConfiguration toolchainTargetConfiguration) {
+    if (toolchainProvider.isToolchainPresent(toolchainName, toolchainTargetConfiguration)) {
       return Optional.empty();
     } else {
-      return toolchainProvider.getToolchainInstantiationException(toolchainName);
+      return toolchainProvider.getToolchainInstantiationException(
+          toolchainName, toolchainTargetConfiguration);
     }
   }
 }

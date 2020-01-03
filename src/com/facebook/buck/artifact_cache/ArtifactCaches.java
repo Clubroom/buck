@@ -1,18 +1,19 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.artifact_cache;
 
 import static com.facebook.buck.artifact_cache.config.ArtifactCacheMode.CacheType.local;
@@ -63,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import javax.net.ssl.HostnameVerifier;
 import okhttp3.ConnectionPool;
 import okhttp3.Dispatcher;
 import okhttp3.MediaType;
@@ -91,7 +93,6 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
   private final Optional<String> wifiSsid;
   private final ListeningExecutorService httpWriteExecutorService;
   private final ListeningExecutorService httpFetchExecutorService;
-  private final ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService;
   private List<ArtifactCache> artifactCaches = new ArrayList<>();
   private final ListeningExecutorService dirWriteExecutorService;
   private final TaskManagerCommandScope managerScope;
@@ -155,7 +156,6 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
-      ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService,
       ListeningExecutorService dirWriteExecutorService,
       TaskManagerCommandScope managerScope,
       String producerId,
@@ -169,7 +169,6 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
     this.wifiSsid = wifiSsid;
     this.httpWriteExecutorService = httpWriteExecutorService;
     this.httpFetchExecutorService = httpFetchExecutorService;
-    this.downloadHeavyBuildHttpFetchExecutorService = downloadHeavyBuildHttpFetchExecutorService;
     this.dirWriteExecutorService = dirWriteExecutorService;
     this.managerScope = managerScope;
     this.producerId = producerId;
@@ -188,41 +187,32 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
 
   @Override
   public ArtifactCache newInstance() {
-    return newInstance(false, false);
+    return newInstance(false);
   }
 
   /**
    * Creates a new instance of the cache for use during a build.
    *
    * @param distributedBuildModeEnabled true if this is a distributed build
-   * @param isDownloadHeavyBuild true if creating cache connector for download heavy build
    * @return ArtifactCache instance
    */
   @Override
-  public ArtifactCache newInstance(
-      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
-    return newInstanceInternal(
-        ImmutableSet.of(), distributedBuildModeEnabled, isDownloadHeavyBuild);
+  public ArtifactCache newInstance(boolean distributedBuildModeEnabled) {
+    return newInstanceInternal(ImmutableSet.of(), distributedBuildModeEnabled);
   }
 
   @Override
-  public ArtifactCache remoteOnlyInstance(
-      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
-    return newInstanceInternal(
-        ImmutableSet.of(local), distributedBuildModeEnabled, isDownloadHeavyBuild);
+  public ArtifactCache remoteOnlyInstance(boolean distributedBuildModeEnabled) {
+    return newInstanceInternal(ImmutableSet.of(local), distributedBuildModeEnabled);
   }
 
   @Override
-  public ArtifactCache localOnlyInstance(
-      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
-    return newInstanceInternal(
-        ImmutableSet.of(remote), distributedBuildModeEnabled, isDownloadHeavyBuild);
+  public ArtifactCache localOnlyInstance(boolean distributedBuildModeEnabled) {
+    return newInstanceInternal(ImmutableSet.of(remote), distributedBuildModeEnabled);
   }
 
   private ArtifactCache newInstanceInternal(
-      ImmutableSet<CacheType> cacheTypeBlacklist,
-      boolean distributedBuildModeEnabled,
-      boolean isDownloadHeavyBuild) {
+      ImmutableSet<CacheType> cacheTypeBlacklist, boolean distributedBuildModeEnabled) {
     ArtifactCacheConnectEvent.Started started = ArtifactCacheConnectEvent.started();
     buckEventBus.post(started);
 
@@ -235,9 +225,7 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
             projectFilesystem,
             wifiSsid,
             httpWriteExecutorService,
-            isDownloadHeavyBuild
-                ? downloadHeavyBuildHttpFetchExecutorService
-                : httpFetchExecutorService,
+            httpFetchExecutorService,
             dirWriteExecutorService,
             cacheTypeBlacklist,
             distributedBuildModeEnabled,
@@ -262,7 +250,6 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
         wifiSsid,
         httpWriteExecutorService,
         httpFetchExecutorService,
-        downloadHeavyBuildHttpFetchExecutorService,
         dirWriteExecutorService,
         managerScope,
         producerId,
@@ -642,6 +629,14 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
                       addHeadersToBuilder(chain.request().newBuilder(), readHeaders).build()));
     }
 
+    Optional<HandshakeCertificates> handshakeCertificates = Optional.empty();
+    Optional<HostnameVerifier> hostnameVerifier = Optional.empty();
+    if (config.getClientTlsForSlb() && clientCertificateHandler.isPresent()) {
+      handshakeCertificates =
+          Optional.of(clientCertificateHandler.get().getHandshakeCertificates());
+      hostnameVerifier = clientCertificateHandler.get().getHostnameVerifier();
+    }
+
     fetchClientBuilder
         .networkInterceptors()
         .add(
@@ -659,7 +654,10 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
     switch (config.getLoadBalancingType()) {
       case CLIENT_SLB:
         HttpLoadBalancer clientSideSlb =
-            config.getSlbConfig().createClientSideSlb(new DefaultClock(), buckEventBus);
+            config
+                .getSlbConfig()
+                .createClientSideSlb(
+                    new DefaultClock(), buckEventBus, handshakeCertificates, hostnameVerifier);
         fetchService =
             new RetryingHttpService(
                 buckEventBus,

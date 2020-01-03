@@ -3,6 +3,7 @@ java_library(
     srcs = glob(["*.java"]),
     exported_deps = [
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
+        "//src/com/facebook/buck/core/build/action/resolver:resolver",
         "//src/com/facebook/buck/core/build/engine:engine",
         "//src/com/facebook/buck/core/build/engine/config:config",
         "//src/com/facebook/buck/core/cell:cell",
@@ -19,7 +20,6 @@ java_library(
         "PUBLIC",
     ],
     deps = [
-        "//src/com/facebook/buck/core/build/distributed/synchronization:synchronization",
         "//src/com/facebook/buck/core/build/engine/cache/manager:manager",
         "//src/com/facebook/buck/core/build/engine/delegate:delegate",
         "//src/com/facebook/buck/core/build/event:event",
@@ -32,6 +32,7 @@ java_library(
         "//src/com/facebook/buck/util/collect:collect",
         "//src/com/facebook/buck/util/hashing:hashing",
         "//src/com/facebook/buck/util/json:json",
+        "//src/com/facebook/buck/util/stream:stream",
         "//third-party/java/infer-annotations:infer-annotations",
         "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",

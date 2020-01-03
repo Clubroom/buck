@@ -1,21 +1,22 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.clang.ModuleMapMode;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
@@ -23,11 +24,12 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleValue;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.util.MoreSuppliers;
@@ -48,7 +50,6 @@ import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import org.immutables.value.Value;
 
 public class AppleConfig implements ConfigView<BuckConfig> {
 
@@ -67,6 +68,8 @@ public class AppleConfig implements ConfigView<BuckConfig> {
   private static final String FORCE_LOAD_LINK_WHOLE_LIBRARY_ENABLED =
       "force_load_link_whole_library";
   private static final String FORCE_LOAD_LIBRARY_PATH = "force_load_library_path";
+
+  public static final String BUILD_SCRIPT = "xcode_build_script";
 
   private final BuckConfig delegate;
 
@@ -101,6 +104,28 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     } else {
       return createAppleDeveloperDirectorySupplier(processExecutor);
     }
+  }
+
+  /**
+   * Gets the path to the executable file of idb
+   *
+   * @return a custom path if it was passed in the config, the default path otherwise
+   */
+  public Path getIdbPath() {
+    Optional<String> idbPathString = delegate.getValue(APPLE_SECTION, "idb_path");
+    if (idbPathString.isPresent()) return Paths.get(idbPathString.get());
+    return Paths.get("/usr/local/bin/idb");
+  }
+
+  /**
+   * Determines whether to use idb install functions or simctl; current default is to not use idb
+   *
+   * @return true it is supposed to use idb, false otherwise
+   */
+  public boolean useIdb() {
+    Optional<String> idbPathString = delegate.getValue(APPLE_SECTION, "use_idb");
+    if (idbPathString.isPresent()) return idbPathString.get().equals("true");
+    return false;
   }
 
   public Optional<String> getXcodeDeveloperDirectoryForTests() {
@@ -253,8 +278,14 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return getOptionalPath(APPLE_SECTION, "device_helper_path");
   }
 
-  public Optional<BuildTarget> getAppleDeviceHelperTarget(TargetConfiguration targetConfiguration) {
-    return delegate.getBuildTarget(APPLE_SECTION, "device_helper_target", targetConfiguration);
+  /** Query buckconfig for device helper target. */
+  public Optional<BuildTarget> getAppleDeviceHelperTarget(
+      Optional<TargetConfiguration> targetConfiguration) {
+    // TODO(nga): ignores default_target_platform and configuration detectors
+    return delegate.getBuildTarget(
+        APPLE_SECTION,
+        "device_helper_target",
+        targetConfiguration.orElse(UnconfiguredTargetConfiguration.INSTANCE));
   }
 
   public Path getProvisioningProfileSearchPath() {
@@ -297,6 +328,10 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public boolean shouldAddLinkedLibrariesAsFlags() {
     return delegate.getBooleanValue(APPLE_SECTION, "link_libraries_as_flags", false);
+  }
+
+  public boolean shouldLinkSystemSwift() {
+    return delegate.getBooleanValue(APPLE_SECTION, "should_link_system_swift", true);
   }
 
   public boolean shouldIncludeSharedLibraryResources() {
@@ -434,11 +469,43 @@ public class AppleConfig implements ConfigView<BuckConfig> {
         APPLE_SECTION, "work_around_dsymutil_lto_stack_overflow_bug", false);
   }
 
-  @Value.Immutable
-  @BuckStyleTuple
-  interface AbstractApplePackageConfig {
+  /** @return The module map mode to use for modular libraries. */
+  public ModuleMapMode moduleMapMode() {
+    return delegate
+        .getEnum(APPLE_SECTION, "modulemap_mode", ModuleMapMode.class)
+        .orElse(ModuleMapMode.UMBRELLA_HEADER);
+  }
+
+  public Path shellPath() {
+    return delegate.getPath(APPLE_SECTION, "xcode_build_script_shell").orElse(Paths.get("/bin/sh"));
+  }
+
+  public Path buildScriptPath() {
+    return delegate.getRequiredPath(APPLE_SECTION, BUILD_SCRIPT);
+  }
+
+  /**
+   * @return whether entitlements should be used during adhoc code signing phase (adhoc is used on
+   *     simulator and macOS platforms).
+   */
+  public boolean useEntitlementsWhenAdhocCodeSigning() {
+    return delegate
+        .getBoolean(APPLE_SECTION, "use_entitlements_when_adhoc_code_signing")
+        .orElse(false);
+  }
+
+  public boolean shouldUseModernBuildSystem() {
+    return delegate.getBooleanValue(APPLE_SECTION, "use_modern_build_system", true);
+  }
+
+  @BuckStyleValue
+  interface ApplePackageConfig {
     String getCommand();
 
     String getExtension();
+
+    static ApplePackageConfig of(String command, String extension) {
+      return ImmutableApplePackageConfig.of(command, extension);
+    }
   }
 }

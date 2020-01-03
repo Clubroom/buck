@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -33,7 +33,7 @@ import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -43,7 +43,7 @@ import com.google.common.collect.Multimaps;
 import java.nio.file.Path;
 import java.util.Optional;
 
-/** Handles infer flavors for {@link CxxLibrary} and {@link CxxBinary}. */
+/** Handles infer flavors for {@link CxxLibraryGroup} and {@link CxxBinary}. */
 public final class CxxInferEnhancer {
 
   /** Flavor adorning the individual inter capture rules. */
@@ -257,8 +257,8 @@ public final class CxxInferEnhancer {
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
       @Override
       public Iterable<BuildRule> visit(BuildRule buildRule) {
-        if (buildRule instanceof CxxLibrary) {
-          CxxLibrary library = (CxxLibrary) buildRule;
+        if (buildRule instanceof CxxLibraryGroup) {
+          CxxLibraryGroup library = (CxxLibraryGroup) buildRule;
           depsBuilder.add(
               (ruleClass.cast(
                   library.requireBuildRule(
@@ -292,12 +292,12 @@ public final class CxxInferEnhancer {
                     args.getLangPreprocessorFlags(),
                     args.getLangPlatformPreprocessorFlags(),
                     cxxPlatform),
-                f ->
-                    CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        target, cellRoots, graphBuilder, cxxPlatform, f))),
+                CxxDescriptionEnhancer.getStringWithMacrosArgsConverter(
+                        target, cellRoots, graphBuilder, cxxPlatform)
+                    ::convert)),
         ImmutableList.of(headerSymlinkTree),
         args.getFrameworks(),
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+        CxxPreprocessables.getTransitiveCxxPreprocessorInputFromDeps(
             cxxPlatform,
             graphBuilder,
             RichStream.from(deps).filter(CxxPreprocessorDep.class::isInstance).toImmutableList()),
@@ -316,7 +316,8 @@ public final class CxxInferEnhancer {
     InferFlavors.checkNoInferFlavors(target.getFlavors());
 
     ImmutableMap<Path, SourcePath> headers =
-        CxxDescriptionEnhancer.parseHeaders(target, graphBuilder, Optional.of(cxxPlatform), args);
+        CxxDescriptionEnhancer.parseHeaders(
+            target, graphBuilder, filesystem, Optional.of(cxxPlatform), args);
 
     // Setup the header symlink tree and combine all the preprocessor input from this rule
     // and all dependencies.
@@ -382,9 +383,9 @@ public final class CxxInferEnhancer {
                     args.getLangCompilerFlags(),
                     args.getLangPlatformCompilerFlags(),
                     cxxPlatform),
-                f ->
-                    CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        target, cellRoots, graphBuilder, cxxPlatform, f)),
+                CxxDescriptionEnhancer.getStringWithMacrosArgsConverter(
+                        target, cellRoots, graphBuilder, cxxPlatform)
+                    ::convert),
             args.getPrefixHeader(),
             args.getPrecompiledHeader(),
             PicType.PDC);

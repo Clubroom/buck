@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.model;
@@ -26,14 +26,14 @@ import org.immutables.value.Value;
 @Value.Immutable(copy = false, intern = true)
 @BuckStyleImmutable
 @JsonDeserialize
-abstract class AbstractRuleType {
+public abstract class AbstractRuleType {
 
   /** The kind of a rule type. */
   public enum Kind {
     /** Build rule types can be used during the build to produce build artifacts. */
     BUILD,
     /** Configuration rule types can be used during configuration phase. */
-    CONFIGURATION
+    CONFIGURATION,
   }
 
   /** @return the name as displayed in a build file, such as "java_library" */
@@ -50,6 +50,16 @@ abstract class AbstractRuleType {
   @JsonIgnore
   public boolean isTestRule() {
     return getName().endsWith("_test");
+  }
+
+  /**
+   * @return {@code true} if this rule type is a build rule, {@code false} otherwise (for example,
+   *     for configuration rule types).
+   */
+  @Value.Derived
+  @JsonIgnore
+  public boolean isBuildRule() {
+    return getKind() == Kind.BUILD;
   }
 
   @Value.Check

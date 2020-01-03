@@ -1,22 +1,23 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.skylark.parser;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.parser.api.ImmutablePackageMetadata;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.google.common.collect.ImmutableList;
@@ -26,10 +27,18 @@ import java.util.Map;
 import java.util.Optional;
 import org.immutables.value.Value;
 
-/** Parse result containing build rules defined in build file and supporting metadata. */
+/**
+ * Parse result containing build/package rules and package defined in build or package files and
+ * supporting metadata.
+ */
 @Value.Immutable(builder = false)
 @BuckStyleImmutable
 abstract class AbstractParseResult {
+
+  /** Contains the package defined in a package file. */
+  @Value.Parameter
+  public abstract ImmutablePackageMetadata getPackage();
+
   /**
    * Returns rules organized in a map where a key is a rule name and the value is a map with keys
    * representing rule parameters and values representing rule arguments.
@@ -38,15 +47,16 @@ abstract class AbstractParseResult {
    */
   @Value.Parameter
   public abstract ImmutableMap<String, Map<String, Object>> getRawRules();
+
   /**
    * Returns a set of extension paths that were loaded explicitly or transitively when parsing
-   * current build file.
+   * current build or package file.
    */
   @Value.Parameter
   public abstract ImmutableSet<String> getLoadedPaths();
 
   /**
-   * Returns all configuration options accessed during parsing of the build file.
+   * Returns all configuration options accessed during parsing of the build or package file.
    *
    * <p>The schema is section->key->value
    */

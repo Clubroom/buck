@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.apple.project;
@@ -533,7 +533,7 @@ public class ProjectIntegrationTest {
   }
 
   @Test
-  public void testBuckProjectOtherCell() throws IOException, InterruptedException {
+  public void testBuckProjectOtherCell() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
     ProjectWorkspace workspace =
@@ -574,6 +574,42 @@ public class ProjectIntegrationTest {
     result.assertSuccess();
 
     runXcodebuild(workspace, "Apps/App.xcworkspace", "App");
+  }
+
+  @Test
+  public void
+      testBuckProjectWithSwiftDependencyOnModularObjectiveCLibraryAndUmbrellaDirectoryModuleMap()
+          throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "umbrella_directory_modulemap", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//:Test");
+    result.assertSuccess();
+
+    runXcodebuild(workspace, "Test.xcworkspace", "Test");
+  }
+
+  @Test
+  public void
+      testBuckProjectWithSwiftDependencyOnModularObjectiveCLibraryAndPerLibraryUmbrellaDirectoryModuleMap()
+          throws IOException, InterruptedException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "umbrella_directory_modulemap_per_library", temporaryFolder);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("project", "//:Test");
+    result.assertSuccess();
+
+    runXcodebuild(workspace, "Test.xcworkspace", "Test");
   }
 
   @Test

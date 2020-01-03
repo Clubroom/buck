@@ -1,23 +1,24 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
+import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -25,6 +26,7 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.Optionals;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
@@ -60,7 +62,6 @@ import com.facebook.buck.support.bgtasks.ImmutableBackgroundTask;
 import com.facebook.buck.support.bgtasks.TaskManagerCommandScope;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
-import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessResourceConsumption;
 import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -133,6 +134,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   private final BuildId buildId;
 
   private final Optional<RemoteExecutionStatsProvider> reStatsProvider;
+  private final CriticalPathEventListener criticalPathEventListener;
 
   public ChromeTraceBuildListener(
       ProjectFilesystem projectFilesystem,
@@ -140,7 +142,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       Clock clock,
       ChromeTraceBuckConfig config,
       TaskManagerCommandScope managerScope,
-      Optional<RemoteExecutionStatsProvider> reStatsProvider)
+      Optional<RemoteExecutionStatsProvider> reStatsProvider,
+      CriticalPathEventListener criticalPathEventListener)
       throws IOException {
     this(
         projectFilesystem,
@@ -151,7 +154,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ManagementFactory.getThreadMXBean(),
         config,
         managerScope,
-        reStatsProvider);
+        reStatsProvider,
+        criticalPathEventListener);
   }
 
   @VisibleForTesting
@@ -164,13 +168,15 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       ThreadMXBean threadMXBean,
       ChromeTraceBuckConfig config,
       TaskManagerCommandScope managerScope,
-      Optional<RemoteExecutionStatsProvider> reStatsProvider)
+      Optional<RemoteExecutionStatsProvider> reStatsProvider,
+      CriticalPathEventListener criticalPathEventListener)
       throws IOException {
     this.logDirectoryPath = invocationInfo.getLogDirectoryPath();
     this.projectFilesystem = projectFilesystem;
     this.clock = clock;
     this.buildId = invocationInfo.getBuildId();
     this.reStatsProvider = reStatsProvider;
+    this.criticalPathEventListener = criticalPathEventListener;
     this.dateFormat =
         new ThreadLocal<SimpleDateFormat>() {
           @Override
@@ -289,6 +295,49 @@ public class ChromeTraceBuildListener implements BuckEventListener {
             "command_args", Joiner.on(' ').join(finished.getArgs()),
             "daemon", Boolean.toString(finished.isDaemon())),
         finished);
+
+    addCriticalPathEvents(finished);
+  }
+
+  private void addCriticalPathEvents(CommandEvent.Finished finished) {
+    for (CriticalPathReportableNode node : criticalPathEventListener.getCriticalPathReportNodes()) {
+      if (node.getEventNanoTime() == 0L) {
+        // Don't create events for place holder critical path nodes that fetched from cache
+        continue;
+      }
+      long startMicros =
+          TimeUnit.NANOSECONDS.toMicros(
+              node.getEventNanoTime() - TimeUnit.MILLISECONDS.toNanos(node.getElapsedTimeMs()));
+      ChromeTraceEvent startTraceEvent =
+          new ChromeTraceEvent(
+              "critical_path",
+              "critical_path",
+              ChromeTraceEvent.Phase.BEGIN,
+              0,
+              finished.getThreadId(),
+              startMicros,
+              startMicros,
+              ImmutableMap.of("rule", node.getBuildTarget().getFullyQualifiedName()));
+      submitTraceEvent(startTraceEvent);
+
+      ChromeTraceEvent endTraceEvent =
+          new ChromeTraceEvent(
+              "critical_path",
+              "critical_path",
+              ChromeTraceEvent.Phase.END,
+              0,
+              finished.getThreadId(),
+              TimeUnit.NANOSECONDS.toMicros(node.getEventNanoTime()),
+              TimeUnit.NANOSECONDS.toMicros(node.getEventNanoTime()),
+              ImmutableMap.of(
+                  "rule",
+                  node.getBuildTarget().getFullyQualifiedName(),
+                  "type",
+                  node.getType(),
+                  "elapsed_time_ms",
+                  node.getElapsedTimeMs()));
+      submitTraceEvent(endTraceEvent);
+    }
   }
 
   @Subscribe
@@ -595,7 +644,17 @@ public class ChromeTraceBuildListener implements BuckEventListener {
             .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()))
             .put(
                 "rule",
-                finished.getTarget().map(BuildTarget::getFullyQualifiedName).orElse("unknown"));
+                finished.getTarget().map(BuildTarget::getFullyQualifiedName).orElse("unknown"))
+            .put(
+                "artifact_size",
+                finished
+                    .getCacheResult()
+                    .map(
+                        result ->
+                            result.getType() == CacheResultType.HIT
+                                ? Long.toString(result.getArtifactSizeBytes())
+                                : "unknown")
+                    .orElse("unknown"));
     Optionals.putIfPresent(
         finished.getCacheResult().map(Object::toString), "cache_result", argumentsBuilder);
 
@@ -609,21 +668,28 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
   @Subscribe
   public void artifactCompressionStarted(ArtifactCompressionEvent.Started started) {
-    writeArtifactCompressionEvent(started, ChromeTraceEvent.Phase.BEGIN);
+    writeArtifactCompressionEvent(started, ChromeTraceEvent.Phase.BEGIN, ImmutableMap.builder());
   }
 
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
-    writeArtifactCompressionEvent(finished, ChromeTraceEvent.Phase.END);
+    writeArtifactCompressionEvent(
+        finished,
+        ChromeTraceEvent.Phase.END,
+        ImmutableMap.<String, String>builder()
+            .put("full_size", Long.toString(finished.fullSize))
+            .put("compressed_size", Long.toString(finished.compressedSize)));
   }
 
   public void writeArtifactCompressionEvent(
-      ArtifactCompressionEvent event, ChromeTraceEvent.Phase phase) {
+      ArtifactCompressionEvent event,
+      ChromeTraceEvent.Phase phase,
+      ImmutableMap.Builder<String, String> builder) {
     writeChromeTraceEvent(
         "buck",
         event.getCategory(),
         phase,
-        ImmutableMap.of("rule_key", Joiner.on(", ").join(event.getRuleKeys())),
+        builder.put("rule_key", Joiner.on(", ").join(event.getRuleKeys())).build(),
         event);
   }
 

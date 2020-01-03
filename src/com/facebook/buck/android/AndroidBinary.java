@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -52,9 +52,10 @@ import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -62,9 +63,9 @@ import com.google.common.collect.Ordering;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -94,16 +95,15 @@ public class AndroidBinary extends AbstractBuildRule
 
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ProGuardObfuscateStep.SdkProguardType sdkProguardConfig;
-  private final OptionalInt optimizationPasses;
+  private final int optimizationPasses;
   private final Optional<SourcePath> proguardConfig;
-  private final SourcePathRuleFinder ruleFinder;
 
   private final Optional<List<String>> proguardJvmArgs;
   private final ResourceCompressionMode resourceCompressionMode;
   private final ImmutableSet<TargetCpuType> cpuFilters;
   private final ResourceFilter resourceFilter;
   private final EnumSet<ExopackageMode> exopackageModes;
-  private final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
+  private final Supplier<ImmutableSet<JavaLibrary>> rulesToExcludeFromDex;
 
   private final AndroidGraphEnhancementResult enhancementResult;
   private final ManifestEntries manifestEntries;
@@ -119,6 +119,8 @@ public class AndroidBinary extends AbstractBuildRule
 
   @AddToRuleKey private final AndroidBinaryBuildable buildable;
 
+  private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
+
   // TODO(cjhopman): What's the difference between shouldProguard and skipProguard?
   AndroidBinary(
       BuildTarget buildTarget,
@@ -132,7 +134,7 @@ public class AndroidBinary extends AbstractBuildRule
       DexSplitMode dexSplitMode,
       Set<BuildTarget> buildTargetsToExcludeFromDex,
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
-      OptionalInt proguardOptimizationPasses,
+      int proguardOptimizationPasses,
       Optional<SourcePath> proguardConfig,
       boolean skipProguard,
       Optional<RedexOptions> redexOptions,
@@ -140,9 +142,9 @@ public class AndroidBinary extends AbstractBuildRule
       Set<TargetCpuType> cpuFilters,
       ResourceFilter resourceFilter,
       EnumSet<ExopackageMode> exopackageModes,
-      ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
+      Supplier<ImmutableSet<JavaLibrary>> rulesToExcludeFromDex,
       AndroidGraphEnhancementResult enhancementResult,
-      OptionalInt xzCompressionLevel,
+      int xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       Optional<CompressionAlgorithm> assetCompressionAlgorithm,
@@ -157,7 +159,6 @@ public class AndroidBinary extends AbstractBuildRule
       Optional<ExopackageInfo> exopackageInfo) {
     super(buildTarget, projectFilesystem);
     Preconditions.checkArgument(params.getExtraDeps().get().isEmpty());
-    this.ruleFinder = ruleFinder;
     this.proguardJvmArgs = proguardJvmArgs;
     this.keystore = keystore;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
@@ -179,8 +180,8 @@ public class AndroidBinary extends AbstractBuildRule
 
     if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
       Preconditions.checkArgument(
-          enhancementResult.getPreDexMerge().isPresent(),
-          "%s specified exopackage without pre-dexing, which is invalid.",
+          enhancementResult.getPreDexMergeSplitDex().isPresent(),
+          "%s specified exopackage without pre-dexing and split dex, which is invalid.",
           getBuildTarget());
       Preconditions.checkArgument(
           dexSplitMode.getDexStore() == DexStore.JAR,
@@ -231,11 +232,26 @@ public class AndroidBinary extends AbstractBuildRule
     this.exopackageInfo = exopackageInfo;
 
     params =
-        params.withExtraDeps(
+        new BuildRuleParams(
+            ImmutableSortedSet::of,
             () ->
                 BuildableSupport.deriveDeps(this, ruleFinder)
-                    .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
+                    .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
+            params.getTargetGraphOnlyDeps());
     this.buildRuleParams = params;
+
+    this.transitiveClasspathDepsSupplier =
+        createTransitiveClasspathDepsSupplier(ruleFinder, enhancementResult);
+  }
+
+  private static Supplier<ImmutableSet<JavaLibrary>> createTransitiveClasspathDepsSupplier(
+      SourcePathRuleFinder ruleFinder, AndroidGraphEnhancementResult enhancementResult) {
+    return Suppliers.memoize(
+        () ->
+            JavaLibraryClasspathProvider.getClasspathDeps(
+                ruleFinder
+                    .filterBuildRuleInputs(enhancementResult.getClasspathEntriesToDex().stream())
+                    .collect(ImmutableSet.toImmutableSet())));
   }
 
   @Override
@@ -258,7 +274,7 @@ public class AndroidBinary extends AbstractBuildRule
     return buildRuleParams.getTargetGraphOnlyDeps();
   }
 
-  public ImmutableSortedSet<JavaLibrary> getRulesToExcludeFromDex() {
+  public Supplier<ImmutableSet<JavaLibrary>> getRulesToExcludeFromDex() {
     return rulesToExcludeFromDex;
   }
 
@@ -290,7 +306,7 @@ public class AndroidBinary extends AbstractBuildRule
     return sdkProguardConfig;
   }
 
-  public OptionalInt getOptimizationPasses() {
+  public int getOptimizationPasses() {
     return optimizationPasses;
   }
 
@@ -356,10 +372,6 @@ public class AndroidBinary extends AbstractBuildRule
     return keystore;
   }
 
-  public SortedSet<BuildRule> getClasspathDeps() {
-    return getDeclaredDeps();
-  }
-
   @Override
   public ImmutableSet<SourcePath> getTransitiveClasspaths() {
     // This is used primarily for buck audit classpath.
@@ -368,10 +380,7 @@ public class AndroidBinary extends AbstractBuildRule
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
-    return JavaLibraryClasspathProvider.getClasspathDeps(
-        ruleFinder
-            .filterBuildRuleInputs(enhancementResult.getClasspathEntriesToDex().stream())
-            .collect(ImmutableSet.toImmutableSet()));
+    return transitiveClasspathDepsSupplier.get();
   }
 
   @Override

@@ -1,25 +1,26 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.query;
 
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import java.util.Set;
 
 /**
@@ -29,7 +30,7 @@ import java.util.Set;
  *
  * <pre>expr ::= TESTSOF '(' expr ')'</pre>
  */
-public class TestsOfFunction implements QueryFunction<QueryBuildTarget, QueryBuildTarget> {
+public class TestsOfFunction<T extends QueryTarget> implements QueryFunction<T, T> {
 
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION);
@@ -52,16 +53,10 @@ public class TestsOfFunction implements QueryFunction<QueryBuildTarget, QueryBui
   }
 
   @Override
-  public ImmutableSet<QueryBuildTarget> eval(
-      QueryEvaluator<QueryBuildTarget> evaluator,
-      QueryEnvironment<QueryBuildTarget> env,
-      ImmutableList<Argument<QueryBuildTarget>> args)
+  public Set<T> eval(
+      QueryEvaluator<T> evaluator, QueryEnvironment<T> env, ImmutableList<Argument<T>> args)
       throws QueryException {
-    Set<QueryBuildTarget> targets = evaluator.eval(args.get(0).getExpression(), env);
-    ImmutableSet.Builder<QueryBuildTarget> tests = new ImmutableSet.Builder<>();
-    for (QueryBuildTarget target : targets) {
-      tests.addAll(env.getTestsForTarget(target));
-    }
-    return tests.build();
+    Set<T> targets = evaluator.eval(args.get(0).getExpression(), env);
+    return Unions.of((T target) -> env.getTestsForTarget(target), targets);
   }
 }

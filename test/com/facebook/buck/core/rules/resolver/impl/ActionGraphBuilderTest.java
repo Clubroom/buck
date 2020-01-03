@@ -1,17 +1,17 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.rules.resolver.impl;
@@ -21,11 +21,12 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeNoException;
 
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -36,23 +37,20 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.config.registry.ConfigurationRuleRegistry;
+import com.facebook.buck.core.rules.config.registry.impl.ConfigurationRuleRegistryFactory;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.providers.collect.ProviderInfoCollection;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -60,15 +58,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
-@RunWith(Parameterized.class)
 public class ActionGraphBuilderTest {
 
   @Rule public ExpectedException expectedException = ExpectedException.none();
@@ -82,53 +76,20 @@ public class ActionGraphBuilderTest {
     }
   }
 
-  enum ClassToTest {
-    SINGLE_THREADED,
-    MULTI_THREADED
-  }
-
-  @Parameterized.Parameters(name = "{0}")
-  public static Collection<Object[]> data() {
-    return Arrays.asList(
-        new Object[][] {
-          {
-            ClassToTest.SINGLE_THREADED,
-          },
-          {
-            ClassToTest.MULTI_THREADED,
-          },
-        });
-  }
-
-  @Parameterized.Parameter() public ClassToTest classToTest;
-
   public ActionGraphBuilderFactory actionGraphBuilderFactory;
   public ExecutorService executorService;
 
   @Before
   public void setUp() {
-    switch (classToTest) {
-      case SINGLE_THREADED:
-        this.executorService = MoreExecutors.newDirectExecutorService();
-        this.actionGraphBuilderFactory =
-            (graph, transformer) ->
-                new SingleThreadedActionGraphBuilder(
-                    graph, transformer, new TestCellBuilder().build().getCellProvider());
-        break;
-      case MULTI_THREADED:
-        this.executorService = Executors.newFixedThreadPool(4);
-        this.actionGraphBuilderFactory =
-            (graph, transformer) ->
-                new MultiThreadedActionGraphBuilder(
-                    MoreExecutors.listeningDecorator(this.executorService),
-                    graph,
-                    transformer,
-                    new TestCellBuilder().build().getCellProvider());
-
-        break;
-      default:
-        throw new RuntimeException();
-    }
+    this.executorService = Executors.newFixedThreadPool(4);
+    this.actionGraphBuilderFactory =
+        (graph, transformer) ->
+            new MultiThreadedActionGraphBuilder(
+                MoreExecutors.listeningDecorator(this.executorService),
+                graph,
+                ConfigurationRuleRegistryFactory.createRegistry(TargetGraph.EMPTY),
+                transformer,
+                new TestCellBuilder().build().getCellProvider());
   }
 
   @After
@@ -252,11 +213,13 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T> BuildRule transform(
+              public <T extends BuildRuleArg> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
+                  ConfigurationRuleRegistry configurationRuleRegistry,
                   ActionGraphBuilder graphBuilder,
-                  TargetNode<T> targetNode) {
+                  TargetNode<T> targetNode,
+                  ProviderInfoCollection providerInfoCollection) {
                 Assert.assertFalse(graphBuilder.getRuleOptional(target).isPresent());
                 return graphBuilder.computeIfAbsent(target, FakeBuildRule::new);
               }
@@ -266,8 +229,6 @@ public class ActionGraphBuilderTest {
 
   @Test
   public void accessingTargetBeingBuildInDifferentThreadsWaitsForItsCompletion() throws Exception {
-    Assume.assumeTrue(classToTest == ClassToTest.MULTI_THREADED);
-
     BuildTarget target1 = BuildTargetFactory.newInstance("//foo:bar1");
     TargetNode<?> library1 = JavaLibraryBuilder.createBuilder(target1).build();
 
@@ -285,13 +246,15 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T> BuildRule transform(
+              public <T extends BuildRuleArg> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
+                  ConfigurationRuleRegistry configurationRuleRegistry,
                   ActionGraphBuilder graphBuilder,
-                  TargetNode<T> targetNode) {
+                  TargetNode<T> targetNode,
+                  ProviderInfoCollection providerInfoCollection) {
                 Boolean existing = transformCalls.put(targetNode.getBuildTarget(), true);
-                assertEquals("Should only be called once for each build target", null, existing);
+                assertNull("Should only be called once for each build target", existing);
                 try {
                   if (targetNode.getBuildTarget().equals(target1)) {
                     jobsStarted.countDown();
@@ -320,100 +283,5 @@ public class ActionGraphBuilderTest {
     second.get();
 
     assertEquals("transform() should be called exactly twice", 2, transformCalls.size());
-  }
-
-  @Test(timeout = 10000)
-  public void deadLockOnDependencyTest() throws ExecutionException, InterruptedException {
-    Assume.assumeTrue(classToTest == ClassToTest.MULTI_THREADED);
-
-    // TODO(cjhopman): This test probably doesn't make sense anymore.
-
-    /**
-     * create a graph of the following
-     *
-     * <pre>foo:bar0 foo:bar1   foo:bar2   foo:bar3
-     *          \        \         /         /
-     *                    foo:bar4
-     * </pre>
-     *
-     * <p>such that when the ThreadPool has all 4 threads executing bar0,...bar3, we block waiting
-     * completion of bar4, but have no additional threads for bar4
-     *
-     * <p>proper behaviour is to use one of the threads blocked on bar0,...bar3 to execute bar4.
-     */
-    BuildTarget target4 = BuildTargetFactory.newInstance("//foo:bar4");
-    TargetNode<?> library4 = JavaLibraryBuilder.createBuilder(target4).build();
-
-    BuildTarget target3 = BuildTargetFactory.newInstance("//foo:bar3");
-    TargetNode<?> library3 =
-        JavaLibraryBuilder.createBuilder(target3).addExportedDep(target4).build();
-
-    BuildTarget target2 = BuildTargetFactory.newInstance("//foo:bar2");
-    TargetNode<?> library2 =
-        JavaLibraryBuilder.createBuilder(target2).addExportedDep(target4).build();
-
-    BuildTarget target1 = BuildTargetFactory.newInstance("//foo:bar1");
-    TargetNode<?> library1 =
-        JavaLibraryBuilder.createBuilder(target1).addExportedDep(target4).build();
-
-    BuildTarget target0 = BuildTargetFactory.newInstance("//foo:bar0");
-    TargetNode<?> library0 =
-        JavaLibraryBuilder.createBuilder(target0).addExportedDep(target4).build();
-
-    TargetGraph targetGraph =
-        TargetGraphFactory.newInstance(library0, library1, library2, library3, library4);
-
-    // Ensure the race condition occurs, where we have all of foo:bar0...foo:bar3
-    // running, but not called requireRule(foo:bar4) yet.
-    CountDownLatch jobsStarted = new CountDownLatch(4);
-
-    // run this with ThreadLimited FJP like our actual parallel implementation
-    ListeningExecutorService executorService =
-        MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(4));
-    try {
-      ActionGraphBuilder graphBuilder =
-          new MultiThreadedActionGraphBuilder(
-              executorService,
-              targetGraph,
-              new TargetNodeToBuildRuleTransformer() {
-                @Override
-                public <T> BuildRule transform(
-                    ToolchainProvider toolchainProvider,
-                    TargetGraph targetGraph,
-                    ActionGraphBuilder graphBuilder,
-                    TargetNode<T> targetNode) {
-
-                  jobsStarted.countDown();
-
-                  if (!targetNode.getExtraDeps().isEmpty()) {
-                    try {
-                      // this waits until all of bar0,...bar3 has executed up to this point before
-                      // requiring bar4, to create the situation where all 4 threads in executor
-                      // are blocked waiting for one dependency that has yet to be executed.
-                      jobsStarted.await();
-                    } catch (InterruptedException e) {
-                      // stop the test if we've been interrupted
-                      assumeNoException(e);
-                    }
-
-                    targetNode.getExtraDeps().forEach(graphBuilder::requireRule);
-                  }
-                  return new FakeBuildRule(targetNode.getBuildTarget());
-                }
-              },
-              new TestCellBuilder().build().getCellProvider());
-
-      // mimic our actual parallel action graph construction, in which we call requireRule with
-      // threads outside the executor, which will then fork tasks to the queue.
-
-      ListenableFuture<?> first = executorService.submit(() -> graphBuilder.requireRule(target0));
-      ListenableFuture<?> second = executorService.submit(() -> graphBuilder.requireRule(target1));
-      ListenableFuture<?> third = executorService.submit(() -> graphBuilder.requireRule(target2));
-      ListenableFuture<?> fourth = executorService.submit(() -> graphBuilder.requireRule(target3));
-
-      Futures.allAsList(first, second, third, fourth).get();
-    } finally {
-      executorService.shutdownNow();
-    }
   }
 }

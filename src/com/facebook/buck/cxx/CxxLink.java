@@ -1,23 +1,24 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
@@ -104,11 +105,11 @@ public class CxxLink extends ModernBuildRule<CxxLink.Impl>
   }
 
   private static ImmutableSortedSet<Path> computeCellRoots(
-      CellPathResolver cellResolver, Optional<String> cell) {
+      CellPathResolver cellResolver, CanonicalCellName cell) {
     ImmutableSortedSet.Builder<Path> builder = ImmutableSortedSet.naturalOrder();
-    Path cellPath = cellResolver.getCellPathOrThrow(cell);
+    Path cellPath = cellResolver.getNewCellPathResolver().getCellPath(cell);
     builder.add(cellPath.relativize(cellPath));
-    cellResolver.getCellPaths().forEach((name, path) -> builder.add(cellPath.relativize(path)));
+    cellResolver.getKnownRoots().forEach(path -> builder.add(cellPath.relativize(path)));
     return builder.build();
   }
 
@@ -131,6 +132,7 @@ public class CxxLink extends ModernBuildRule<CxxLink.Impl>
     @AddToRuleKey private final Optional<PublicOutputPath> linkerMapPath;
     @AddToRuleKey private final Optional<PublicOutputPath> thinLTOPath;
     @AddToRuleKey private final ImmutableList<PublicOutputPath> extraOutputs;
+    @AddToRuleKey private final BuildTarget buildTarget;
 
     public Impl(
         Linker linker,
@@ -169,6 +171,7 @@ public class CxxLink extends ModernBuildRule<CxxLink.Impl>
           relativeCellRoots.stream()
               .map(Object::toString)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+      this.buildTarget = buildTarget;
     }
 
     @Override
@@ -205,6 +208,7 @@ public class CxxLink extends ModernBuildRule<CxxLink.Impl>
                       linkOutput,
                       args,
                       linker,
+                      buildTarget.getCell(),
                       filesystem.getRootPath(),
                       context.getSourcePathResolver()))
               .add(

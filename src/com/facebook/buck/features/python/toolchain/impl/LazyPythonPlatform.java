@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.python.toolchain.impl;
@@ -27,6 +27,7 @@ import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -64,12 +65,13 @@ public class LazyPythonPlatform implements PythonPlatform {
             () -> {
               PythonInterpreter pythonInterpreter =
                   toolchainProvider.getByName(
-                      PythonInterpreter.DEFAULT_NAME, PythonInterpreter.class);
+                      PythonInterpreter.DEFAULT_NAME, targetConfiguration, PythonInterpreter.class);
 
               Path pythonPath = pythonInterpreter.getPythonInterpreterPath(configSection);
               PythonVersion pythonVersion =
                   getVersion(pythonBuckConfig, this.processExecutor, configSection, pythonPath);
-              return new PythonEnvironment(pythonPath, pythonVersion, configSection);
+              return new PythonEnvironment(
+                  pythonPath, pythonVersion, configSection, targetConfiguration);
             });
   }
 
@@ -105,5 +107,10 @@ public class LazyPythonPlatform implements PythonPlatform {
   @Override
   public Optional<BuildTarget> getCxxLibrary() {
     return pythonBuckConfig.getCxxLibrary(configSection, targetConfiguration);
+  }
+
+  @Override
+  public ImmutableList<String> getInplaceBinaryInterpreterFlags() {
+    return pythonBuckConfig.inplaceBinaryInterpreterFlags();
   }
 }

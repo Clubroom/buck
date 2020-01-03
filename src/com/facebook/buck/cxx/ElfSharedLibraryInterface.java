@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -21,12 +21,12 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.ElfSharedLibraryInterface.AbstractBuildable;
 import com.facebook.buck.cxx.toolchain.elf.ElfDynamicSection;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetGroup;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
@@ -73,7 +73,7 @@ class ElfSharedLibraryInterface<T extends AbstractBuildable> extends ModernBuild
 
   /**
    * @return a {@link ElfSharedLibraryInterface} built for the library represented by {@link
-   *     NativeLinkTarget}.
+   *     NativeLinkTargetGroup}.
    */
   public static ElfSharedLibraryInterface<LinkerBasedElfSharedLibraryImpl> from(
       BuildTarget target,
@@ -124,8 +124,8 @@ class ElfSharedLibraryInterface<T extends AbstractBuildable> extends ModernBuild
       Path outputScratch = outputPathResolver.resolvePath(new OutputPath(libName + ".scratch"));
       ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-      SourcePathResolver sourcePathResolver = buildContext.getSourcePathResolver();
-      ImmutableList<String> commandPrefix = objcopy.getCommandPrefix(sourcePathResolver);
+      SourcePathResolverAdapter sourcePathResolverAdapter = buildContext.getSourcePathResolver();
+      ImmutableList<String> commandPrefix = objcopy.getCommandPrefix(sourcePathResolverAdapter);
       Pair<ProjectFilesystem, Path> input = getInput(buildContext, filesystem, outputDir, steps);
       steps.add(
           new ElfExtractSectionsStep(
@@ -214,9 +214,10 @@ class ElfSharedLibraryInterface<T extends AbstractBuildable> extends ModernBuild
     @Override
     protected Pair<ProjectFilesystem, Path> getInput(
         BuildContext context, ProjectFilesystem filesystem, Path outputPath, Builder<Step> steps) {
-      SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+      SourcePathResolverAdapter sourcePathResolverAdapter = context.getSourcePathResolver();
       return new Pair<>(
-          sourcePathResolver.getFilesystem(input), sourcePathResolver.getRelativePath(input));
+          sourcePathResolverAdapter.getFilesystem(input),
+          sourcePathResolverAdapter.getRelativePath(input));
     }
   }
 
@@ -248,7 +249,7 @@ class ElfSharedLibraryInterface<T extends AbstractBuildable> extends ModernBuild
       Path fileListPath =
           outputDirPath.resolve(String.format("%s__filelist.txt", shortNameAndFlavorPostfix));
       Path output = outputPath.resolve(libName);
-      SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+      SourcePathResolverAdapter sourcePathResolverAdapter = context.getSourcePathResolver();
       steps
           .addAll(
               CxxPrepareForLinkStep.create(
@@ -258,13 +259,14 @@ class ElfSharedLibraryInterface<T extends AbstractBuildable> extends ModernBuild
                   output,
                   args,
                   linker,
-                  buildTarget.getCellPath(),
-                  sourcePathResolver))
+                  buildTarget.getCell(),
+                  filesystem.getRootPath(),
+                  sourcePathResolverAdapter))
           .add(
               new CxxLinkStep(
                   filesystem.getRootPath(),
-                  linker.getEnvironment(sourcePathResolver),
-                  linker.getCommandPrefix(sourcePathResolver),
+                  linker.getEnvironment(sourcePathResolverAdapter),
+                  linker.getCommandPrefix(sourcePathResolverAdapter),
                   argFilePath,
                   outputDirPath));
       return new Pair<>(filesystem, output);

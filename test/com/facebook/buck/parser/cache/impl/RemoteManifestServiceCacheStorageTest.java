@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser.cache.impl;
@@ -32,17 +32,18 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.manifestservice.ManifestServiceConfig;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
 import com.facebook.buck.parser.cache.ParserCacheStorage;
 import com.facebook.buck.parser.cache.json.BuildFileManifestSerializer;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.FakeClock;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -125,7 +126,7 @@ public class RemoteManifestServiceCacheStorageTest {
 
     /** Appends one more entry to the manifest. Creates a new one if it does not already exist. */
     @Override
-    public ListenableFuture<Void> appendToManifest(Manifest manifest) {
+    public ListenableFuture<Unit> appendToManifest(Manifest manifest) {
       return addToManifestBackingCollection(manifest);
     }
 
@@ -147,18 +148,18 @@ public class RemoteManifestServiceCacheStorageTest {
 
     /** Deletes an existing Manifest. */
     @Override
-    public ListenableFuture<Void> deleteManifest(String manifestKey) {
+    public ListenableFuture<Unit> deleteManifest(String manifestKey) {
       fingerprints.remove(manifestKey);
       return Futures.immediateFuture(null);
     }
 
     /** Sets the Manifest for key. Overwrites existing one if it already exists. */
     @Override
-    public ListenableFuture<Void> setManifest(Manifest manifest) {
+    public ListenableFuture<Unit> setManifest(Manifest manifest) {
       return addToManifestBackingCollection(manifest);
     }
 
-    private ListenableFuture<Void> addToManifestBackingCollection(Manifest manifest) {
+    private ListenableFuture<Unit> addToManifestBackingCollection(Manifest manifest) {
       String key = manifest.key;
       ArrayList fingerprintsForKey = fingerprints.get(key);
       if (fingerprintsForKey == null) {
@@ -170,7 +171,7 @@ public class RemoteManifestServiceCacheStorageTest {
         fingerprintsForKey.add(bytes);
       }
 
-      return Futures.immediateFuture(null);
+      return Futures.immediateFuture(Unit.UNIT);
     }
 
     @Override
@@ -249,7 +250,12 @@ public class RemoteManifestServiceCacheStorageTest {
 
     BuildFileManifest buildFileManifest =
         ImmutableBuildFileManifest.of(
-            targets, includes, configs, Optional.of(ImmutableMap.of()), globSpecs);
+            targets,
+            includes,
+            configs,
+            Optional.of(ImmutableMap.of()),
+            globSpecs,
+            ImmutableList.of());
 
     byte[] serializedManifest = BuildFileManifestSerializer.serialize(buildFileManifest);
     String resultString =

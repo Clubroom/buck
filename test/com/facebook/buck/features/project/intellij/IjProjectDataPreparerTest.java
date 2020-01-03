@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.project.intellij;
@@ -25,6 +25,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
@@ -77,7 +78,7 @@ public class IjProjectDataPreparerTest {
     filesystem = new FakeProjectFilesystem();
     javaPackageFinder =
         DefaultJavaPackageFinder.createDefaultJavaPackageFinder(
-            ImmutableSet.of("/java/", "/javatests/"));
+            filesystem, ImmutableSet.of("/java/", "/javatests/"));
     androidManifestParser = new AndroidManifestParser(new FakeProjectFilesystem());
   }
 
@@ -145,15 +146,17 @@ public class IjProjectDataPreparerTest {
 
   private void testWriteModuleWithMultiCellModulesEnabledHelper(@Nullable String packageName)
       throws Exception {
-    ProjectFilesystem depFileSystem = new FakeProjectFilesystem(Paths.get("dep").toAbsolutePath());
+    ProjectFilesystem depFileSystem =
+        new FakeProjectFilesystem(
+            CanonicalCellName.unsafeOf(Optional.of("dep")), Paths.get("dep").toAbsolutePath());
     ProjectFilesystem mainFileSystem =
-        new FakeProjectFilesystem(Paths.get("main").toAbsolutePath());
+        new FakeProjectFilesystem(
+            CanonicalCellName.unsafeOf(Optional.of("main")), Paths.get("main").toAbsolutePath());
 
     Path depPath = Paths.get("java/com/example/Dep.java");
     TargetNode<?> depTargetNode =
         JavaLibraryBuilder.createBuilder(
-                BuildTargetFactory.newInstance(depFileSystem, "dep//java/com/example:dep"),
-                depFileSystem)
+                BuildTargetFactory.newInstance("dep//java/com/example:dep"), depFileSystem)
             .addSrc(depPath)
             .build();
 
@@ -165,8 +168,7 @@ public class IjProjectDataPreparerTest {
 
     TargetNode<?> mainTargetNode =
         JavaLibraryBuilder.createBuilder(
-                BuildTargetFactory.newInstance(mainFileSystem, "main//java/com/example:main"),
-                mainFileSystem)
+                BuildTargetFactory.newInstance("main//java/com/example:main"), mainFileSystem)
             .addSrc(Paths.get("java/com/example/Main.java"))
             .addDep(depTargetNode.getBuildTarget())
             .build();
@@ -462,21 +464,22 @@ public class IjProjectDataPreparerTest {
 
   @Test
   public void testModuleIndexWithMultiCellModulesEnabled() {
-    ProjectFilesystem depFileSystem = new FakeProjectFilesystem(Paths.get("dep").toAbsolutePath());
+    ProjectFilesystem depFileSystem =
+        new FakeProjectFilesystem(
+            CanonicalCellName.unsafeOf(Optional.of("dep")), Paths.get("dep").toAbsolutePath());
     ProjectFilesystem mainFileSystem =
-        new FakeProjectFilesystem(Paths.get("main").toAbsolutePath());
+        new FakeProjectFilesystem(
+            CanonicalCellName.unsafeOf(Optional.of("main")), Paths.get("main").toAbsolutePath());
 
     TargetNode<?> depTargetNode =
         JavaLibraryBuilder.createBuilder(
-                BuildTargetFactory.newInstance(depFileSystem, "dep//java/com/example:dep"),
-                depFileSystem)
+                BuildTargetFactory.newInstance("dep//java/com/example:dep"), depFileSystem)
             .addSrc(Paths.get("java/com/example/Dep.java"))
             .build();
 
     TargetNode<?> mainTargetNode =
         JavaLibraryBuilder.createBuilder(
-                BuildTargetFactory.newInstance(mainFileSystem, "main//java/com/example:main"),
-                mainFileSystem)
+                BuildTargetFactory.newInstance("main//java/com/example:main"), mainFileSystem)
             .addSrc(Paths.get("java/com/example/Main.java"))
             .addDep(depTargetNode.getBuildTarget())
             .build();
@@ -537,7 +540,11 @@ public class IjProjectDataPreparerTest {
             Paths.get("lib/guava.jar"));
 
     FakeProjectFilesystem filesystemForExcludesTest =
-        new FakeProjectFilesystem(FakeClock.doNotCare(), Paths.get(".").toAbsolutePath(), paths);
+        new FakeProjectFilesystem(
+            FakeClock.doNotCare(),
+            CanonicalCellName.rootCell(),
+            Paths.get(".").toAbsolutePath(),
+            paths);
 
     TargetNode<?> guavaTargetNode =
         PrebuiltJarBuilder.createBuilder(BuildTargetFactory.newInstance("//lib:guava"))

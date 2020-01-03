@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.support.state;
@@ -33,12 +33,13 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.TargetConfigurationSerializer;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.model.impl.JsonTargetConfigurationSerializer;
-import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.provider.KnownRuleTypesProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.watchman.FakeWatchmanClient;
@@ -80,7 +81,7 @@ public class BuckGlobalStateLifecycleManagerTest {
   private PluginManager pluginManager;
   private WatchmanClient watchmanClient;
   private Watchman watchman;
-  private UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+  private UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory;
   private TargetConfigurationSerializer targetConfigurationSerializer;
 
   @Before
@@ -95,7 +96,7 @@ public class BuckGlobalStateLifecycleManagerTest {
     watchman =
         FakeWatchmanFactory.createWatchman(
             watchmanClient, filesystem.getRootPath(), filesystem.getPath(""), "watch");
-    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetFactory();
+    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetViewFactory();
     CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     targetConfigurationSerializer =
         new JsonTargetConfigurationSerializer(
@@ -425,7 +426,8 @@ public class BuckGlobalStateLifecycleManagerTest {
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
-    cell.getToolchainProvider().getByName(AndroidSdkLocation.DEFAULT_NAME);
+    cell.getToolchainProvider()
+        .getByName(AndroidSdkLocation.DEFAULT_NAME, UnconfiguredTargetConfiguration.INSTANCE);
 
     Object buckGlobalState3 =
         buckGlobalStateLifecycleManager
@@ -474,7 +476,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     BuckGlobalState buckGlobalStateWithBrokenAndroidSdk =
         buckGlobalStateLifecycleManager
             .getBuckGlobalState(
@@ -514,7 +519,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     BuckGlobalState buckGlobalStateWithWorkingAndroidSdk =
         buckGlobalStateLifecycleManager
             .getBuckGlobalState(
@@ -554,7 +562,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     BuckGlobalState buckGlobalStateWithBrokenAndroidSdk1 =
         buckGlobalStateLifecycleManager
             .getBuckGlobalState(
@@ -569,7 +580,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     BuckGlobalState buckGlobalStateWithBrokenAndroidSdk2 =
         buckGlobalStateLifecycleManager
             .getBuckGlobalState(
@@ -595,7 +609,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     BuckGlobalState buckGlobalStateWithBrokenAndroidSdk1 =
         buckGlobalStateLifecycleManager
             .getBuckGlobalState(
@@ -633,7 +650,10 @@ public class BuckGlobalStateLifecycleManagerTest {
 
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
-        .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
+        .getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME,
+            UnconfiguredTargetConfiguration.INSTANCE,
+            AndroidSdkLocation.class);
     Object buckGlobalStateWithBrokenAndroidSdk1 =
         buckGlobalStateLifecycleManager.getBuckGlobalState(
             cell,

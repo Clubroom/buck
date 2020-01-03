@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.graph.transformation.executor.impl;
@@ -24,7 +24,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.function.Supplier;
 
 /**
  * A specialized Executor that executes. This executor will attempt to maintain maximum concurrency,
@@ -50,13 +49,6 @@ public class ToposortBasedDepsAwareExecutor<T>
         new ToposortBasedDepsAwareExecutor<>(workQueue, workers, executorService);
 
     return executor;
-  }
-
-  @Override
-  public ToposortBasedDepsAwareTask<T> createTask(
-      Callable<T> callable, Supplier<ImmutableSet<ToposortBasedDepsAwareTask<T>>> depsSupplier) {
-    return ToposortBasedDepsAwareTask.of(
-        callable, DepsSupplier.of(ThrowingSupplier.fromSupplier(depsSupplier)));
   }
 
   @Override

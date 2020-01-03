@@ -1,21 +1,22 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.io.filesystem.impl;
 
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.file.MostFiles;
@@ -117,15 +118,21 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     return true;
   }
 
+  /** This function should be only used in tests, because it ignores hashes-in-path buckconfig. */
   @VisibleForTesting
   protected DefaultProjectFilesystem(
+      CanonicalCellName cellName,
       Path root,
       ProjectFilesystemDelegate projectFilesystemDelegate,
       @Nullable WindowsFS winFSInstance) {
     this(
         root,
         ImmutableSet.of(),
-        BuckPaths.createDefaultBuckPaths(root),
+        BuckPaths.createDefaultBuckPaths(
+            cellName,
+            root,
+            // This function is only used in tests, so it's OK to not query buckconfig here
+            BuckPaths.DEFAULT_BUCK_OUT_INCLUDE_TARGET_COFIG_HASH),
         projectFilesystemDelegate,
         winFSInstance);
   }
@@ -412,7 +419,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   }
 
   /** Walks a project-root relative file tree with a visitor and visit options. */
-  protected void walkRelativeFileTree(
+  @Override
+  public void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       EnumSet<FileVisitOption> visitOptions,
       FileVisitor<Path> fileVisitor,

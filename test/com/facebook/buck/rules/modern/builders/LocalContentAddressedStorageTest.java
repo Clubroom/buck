@@ -1,23 +1,24 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.modern.builders;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.remoteexecution.UploadDataSupplier;
 import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
 import com.facebook.buck.remoteexecution.interfaces.Protocol;
@@ -54,7 +55,8 @@ public class LocalContentAddressedStorageTest {
   @Before
   public void setUp() {
     storageDir = tmp.getRoot().resolve("__storage__");
-    storage = new LocalContentAddressedStorage(storageDir, protocol);
+    storage =
+        new LocalContentAddressedStorage(storageDir, protocol, BuckEventBusForTests.newInstance());
   }
 
   @Test
@@ -63,7 +65,8 @@ public class LocalContentAddressedStorageTest {
     Digest digest = protocol.newDigest("myhashcode", data.length);
     Futures.getUnchecked(
         storage.addMissing(
-            ImmutableList.of(UploadDataSupplier.of(digest, () -> new ByteArrayInputStream(data)))));
+            ImmutableList.of(
+                UploadDataSupplier.of("data", digest, () -> new ByteArrayInputStream(data)))));
     assertDataEquals(data, getBytes(digest));
   }
 
@@ -85,11 +88,13 @@ public class LocalContentAddressedStorageTest {
     Digest digest = protocol.newDigest("myhashcode", data.length);
     Futures.getUnchecked(
         storage.addMissing(
-            ImmutableList.of(UploadDataSupplier.of(digest, () -> new ByteArrayInputStream(data)))));
+            ImmutableList.of(
+                UploadDataSupplier.of("data", digest, () -> new ByteArrayInputStream(data)))));
     Futures.getUnchecked(
         storage.addMissing(
             ImmutableList.of(
                 UploadDataSupplier.of(
+                    "data",
                     digest,
                     () -> {
                       throw new RuntimeException();
@@ -107,22 +112,27 @@ public class LocalContentAddressedStorageTest {
     files.put(otherPath, newFileNode(otherData, otherPath, false));
 
     MerkleTreeNodeCache nodeCache = new MerkleTreeNodeCache(protocol);
-    MerkleTreeNode node = nodeCache.createNode(files, ImmutableMap.of());
+    MerkleTreeNode node = nodeCache.createNode(files, ImmutableMap.of(), ImmutableMap.of());
     Digest rootDigest = nodeCache.getData(node).getDigest();
 
     ImmutableList.Builder<UploadDataSupplier> requiredData = ImmutableList.builder();
 
     requiredData.add(
         UploadDataSupplier.of(
-            protocol.computeDigest(someData), () -> new ByteArrayInputStream(someData)));
+            "someData",
+            protocol.computeDigest(someData),
+            () -> new ByteArrayInputStream(someData)));
     requiredData.add(
         UploadDataSupplier.of(
-            protocol.computeDigest(otherData), () -> new ByteArrayInputStream(otherData)));
+            "otherData",
+            protocol.computeDigest(otherData),
+            () -> new ByteArrayInputStream(otherData)));
     nodeCache.forAllData(
         node,
         data ->
             requiredData.add(
                 UploadDataSupplier.of(
+                    "data",
                     data.getDigest(),
                     () -> new ByteArrayInputStream(protocol.toByteArray(data.getDirectory())))));
 

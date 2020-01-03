@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.python;
@@ -38,7 +38,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -154,7 +154,8 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
                       : getRunInplaceLiteResource())
               .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
               .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
-              .add("MODULES_DIR", relativeLinkTreeRootStr);
+              .add("MODULES_DIR", relativeLinkTreeRootStr)
+              .add("PYTHON_INTERPRETER_FLAGS", pythonPlatform.getInplaceBinaryInterpreterFlags());
 
       // Only add platform-specific values when the binary includes native libraries.
       if (components.getNativeLibraries().isEmpty()) {
@@ -192,12 +193,12 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
 
   @Override
   public Tool getExecutableCommand() {
-    return new CommandTool.Builder(python)
+    CommandTool.Builder builder = new CommandTool.Builder(python);
+    getPythonPlatform().getInplaceBinaryInterpreterFlags().forEach(builder::addArg);
+    getComponents().forEachInput(builder::addInput);
+    return builder
         .addArg(SourcePathArg.of(getSourcePathToOutput()))
         .addNonHashableInput(linkTree.getRootSourcePath())
-        .addInputs(getComponents().getModules().values())
-        .addInputs(getComponents().getResources().values())
-        .addInputs(getComponents().getNativeLibraries().values())
         .build();
   }
 

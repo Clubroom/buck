@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.support.state;
@@ -21,7 +21,7 @@ import com.facebook.buck.core.files.DirectoryListCache;
 import com.facebook.buck.core.files.FileTreeCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.provider.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.FileHashCacheEvent;
@@ -30,6 +30,7 @@ import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.io.watchman.WatchmanCursor;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.parser.DaemonicParserState;
+import com.facebook.buck.parser.manifest.BuildFileManifestCache;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
@@ -67,6 +68,7 @@ public final class BuckGlobalState implements Closeable {
   private final DaemonicParserState daemonicParserState;
   private final ImmutableList<ProjectFileHashCache> hashCaches;
   private final LoadingCache<Path, DirectoryListCache> directoryListCachePerRoot;
+  private final LoadingCache<Path, BuildFileManifestCache> buildFileManifestCachePerRoot;
   private final LoadingCache<Path, FileTreeCache> fileTreeCachePerRoot;
   private final EventBus fileEventBus;
   private final Optional<WebServer> webServer;
@@ -87,6 +89,7 @@ public final class BuckGlobalState implements Closeable {
       ImmutableList<ProjectFileHashCache> hashCaches,
       LoadingCache<Path, DirectoryListCache> directoryListCachePerRoot,
       LoadingCache<Path, FileTreeCache> fileTreeCachePerRoot,
+      LoadingCache<Path, BuildFileManifestCache> buildFileManifestCachePerRoot,
       EventBus fileEventBus,
       Optional<WebServer> webServer,
       ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools,
@@ -103,6 +106,7 @@ public final class BuckGlobalState implements Closeable {
     this.hashCaches = hashCaches;
     this.directoryListCachePerRoot = directoryListCachePerRoot;
     this.fileTreeCachePerRoot = fileTreeCachePerRoot;
+    this.buildFileManifestCachePerRoot = buildFileManifestCachePerRoot;
     this.fileEventBus = fileEventBus;
     this.webServer = webServer;
     this.persistentWorkerPools = persistentWorkerPools;
@@ -148,6 +152,11 @@ public final class BuckGlobalState implements Closeable {
    */
   public LoadingCache<Path, DirectoryListCache> getDirectoryListCaches() {
     return directoryListCachePerRoot;
+  }
+
+  /** Return a map of all build file manifest caches for each cell which is a key */
+  public LoadingCache<Path, BuildFileManifestCache> getBuildFileManifestCaches() {
+    return buildFileManifestCachePerRoot;
   }
 
   /**
@@ -200,10 +209,16 @@ public final class BuckGlobalState implements Closeable {
       // Track the file hash cache invalidation run time.
       FileHashCacheEvent.InvalidationStarted started = FileHashCacheEvent.invalidationStarted();
       eventBus.post(started);
+
+      // TODO(sergeyb): replace with one single invalidation event containing all changes
+      fileEventBus.post(started);
       try {
         watchmanWatcher.postEvents(eventBus, watchmanFreshInstanceAction);
       } finally {
-        eventBus.post(FileHashCacheEvent.invalidationFinished(started));
+        FileHashCacheEvent.InvalidationFinished finished =
+            FileHashCacheEvent.invalidationFinished(started);
+        eventBus.post(finished);
+        fileEventBus.post(finished);
         for (ProjectFileHashCache hashCache : hashCaches) {
           if (hashCache instanceof WatchedFileHashCache) {
             WatchedFileHashCache cache = (WatchedFileHashCache) hashCache;

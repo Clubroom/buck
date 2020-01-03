@@ -1,18 +1,19 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
@@ -21,31 +22,35 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPreprocessables;
+import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceTypes;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroups;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -64,7 +69,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
@@ -72,9 +79,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SortedSet;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
@@ -187,8 +198,11 @@ public class NdkLibraryDescription
 
     NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
         toolchainProvider.getByName(
-            NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
-    AndroidNdk androidNdk = toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
+            NdkCxxPlatformsProvider.DEFAULT_NAME,
+            targetConfiguration,
+            NdkCxxPlatformsProvider.class);
+    AndroidNdk androidNdk =
+        toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, targetConfiguration, AndroidNdk.class);
 
     for (Map.Entry<TargetCpuType, UnresolvedNdkCxxPlatform> entry :
         ndkCxxPlatformsProvider.getNdkCxxPlatforms().entrySet()) {
@@ -197,10 +211,24 @@ public class NdkLibraryDescription
 
       // Collect the preprocessor input for all C/C++ library deps.  We search *through* other
       // NDK library rules.
+      SortedSet<BuildRule> buildDeps = params.getBuildDeps();
+
+      List<CxxPreprocessorDep> preprocessorDeps = new ArrayList<>();
+      // Build up the map of all C/C++ preprocessable dependencies.
+      new AbstractBreadthFirstTraversal<BuildRule>(buildDeps) {
+        @Override
+        public Iterable<BuildRule> visit(BuildRule rule) {
+          if (rule instanceof CxxPreprocessorDep) {
+            preprocessorDeps.add((CxxPreprocessorDep) rule);
+          }
+          return rule instanceof NdkLibrary ? rule.getBuildDeps() : ImmutableList.of();
+        }
+      }.start();
+
       CxxPreprocessorInput cxxPreprocessorInput =
           CxxPreprocessorInput.concat(
               CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                  cxxPlatform, graphBuilder, params.getBuildDeps(), NdkLibrary.class::isInstance));
+                  cxxPlatform, graphBuilder, preprocessorDeps));
 
       // We add any dependencies from the C/C++ preprocessor input to this rule, even though
       // it technically should be added to the top-level rule.
@@ -232,14 +260,20 @@ public class NdkLibraryDescription
 
       // Collect the native linkable input for all C/C++ library deps.  We search *through* other
       // NDK library rules.
+      // Get the topologically sorted native linkables.
+      ImmutableMap<BuildTarget, NativeLinkableGroup> roots =
+          NativeLinkableGroups.getNativeLinkableRoots(
+              buildDeps,
+              (Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>>)
+                  r -> r instanceof NdkLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
+
       NativeLinkableInput nativeLinkableInput =
           NativeLinkables.getTransitiveNativeLinkableInput(
-              cxxPlatform,
               graphBuilder,
               targetConfiguration,
-              params.getBuildDeps(),
-              Linker.LinkableDepType.SHARED,
-              r -> r instanceof NdkLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
+              Iterables.transform(
+                  roots.values(), g -> g.getNativeLinkable(cxxPlatform, graphBuilder)),
+              Linker.LinkableDepType.SHARED);
 
       // We add any dependencies from the native linkable input to this rule, even though
       // it technically should be added to the top-level rule.
@@ -388,26 +422,36 @@ public class NdkLibraryDescription
     if (!args.getSrcs().isEmpty()) {
       sources = args.getSrcs();
     } else {
-      sources = findSources(projectFilesystem, buildTarget.getBasePath());
+      sources =
+          findSources(
+              projectFilesystem,
+              buildTarget
+                  .getCellRelativeBasePath()
+                  .getPath()
+                  .toPath(projectFilesystem.getFileSystem()));
     }
 
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(context.getCellPathResolver())
+            .setActionGraphBuilder(graphBuilder)
             .setExpanders(MACRO_EXPANDERS)
             .build();
 
     ImmutableList<Arg> flags =
         args.getFlags().stream()
-            .map(flag -> macrosConverter.convert(flag, graphBuilder))
+            .map(macrosConverter::convert)
             .collect(ImmutableList.toImmutableList());
 
-    AndroidNdk androidNdk = toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
+    AndroidNdk androidNdk =
+        toolchainProvider.getByName(
+            AndroidNdk.DEFAULT_NAME, buildTarget.getTargetConfiguration(), AndroidNdk.class);
     return new NdkLibrary(
         buildTarget,
         projectFilesystem,
-        toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
+        toolchainProvider.getByName(
+            AndroidNdk.DEFAULT_NAME, buildTarget.getTargetConfiguration(), AndroidNdk.class),
         params.copyAppendingExtraDeps(
             ImmutableSortedSet.<BuildRule>naturalOrder().addAll(makefilePair.getSecond()).build()),
         getGeneratedMakefilePath(buildTarget, projectFilesystem),
@@ -426,7 +470,10 @@ public class NdkLibraryDescription
       Builder<BuildTarget> extraDepsBuilder,
       Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     toolchainProvider
-        .getByNameIfPresent(NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class)
+        .getByNameIfPresent(
+            NdkCxxPlatformsProvider.DEFAULT_NAME,
+            buildTarget.getTargetConfiguration(),
+            NdkCxxPlatformsProvider.class)
         .ifPresent(
             ndkCxxPlatformsProvider ->
                 ndkCxxPlatformsProvider
@@ -440,8 +487,7 @@ public class NdkLibraryDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractNdkLibraryDescriptionArg
-      extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
+  interface AbstractNdkLibraryDescriptionArg extends BuildRuleArg, HasDeclaredDeps, HasSrcs {
     ImmutableList<StringWithMacros> getFlags();
 
     @Value.Default

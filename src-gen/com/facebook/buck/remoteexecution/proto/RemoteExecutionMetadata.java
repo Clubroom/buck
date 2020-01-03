@@ -165,6 +165,19 @@ private static final long serialVersionUID = 0L;
 
             break;
           }
+          case 90: {
+            com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder subBuilder = null;
+            if (executedActionInfo_ != null) {
+              subBuilder = executedActionInfo_.toBuilder();
+            }
+            executedActionInfo_ = input.readMessage(com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.parser(), extensionRegistry);
+            if (subBuilder != null) {
+              subBuilder.mergeFrom(executedActionInfo_);
+              executedActionInfo_ = subBuilder.buildPartial();
+            }
+
+            break;
+          }
           default: {
             if (!parseUnknownFieldProto3(
                 input, unknownFields, extensionRegistry, tag)) {
@@ -398,6 +411,27 @@ private static final long serialVersionUID = 0L;
     return getClientActionInfo();
   }
 
+  public static final int EXECUTED_ACTION_INFO_FIELD_NUMBER = 11;
+  private com.facebook.buck.remoteexecution.proto.ExecutedActionInfo executedActionInfo_;
+  /**
+   * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+   */
+  public boolean hasExecutedActionInfo() {
+    return executedActionInfo_ != null;
+  }
+  /**
+   * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+   */
+  public com.facebook.buck.remoteexecution.proto.ExecutedActionInfo getExecutedActionInfo() {
+    return executedActionInfo_ == null ? com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.getDefaultInstance() : executedActionInfo_;
+  }
+  /**
+   * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+   */
+  public com.facebook.buck.remoteexecution.proto.ExecutedActionInfoOrBuilder getExecutedActionInfoOrBuilder() {
+    return getExecutedActionInfo();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -438,6 +472,9 @@ private static final long serialVersionUID = 0L;
     }
     if (clientActionInfo_ != null) {
       output.writeMessage(10, getClientActionInfo());
+    }
+    if (executedActionInfo_ != null) {
+      output.writeMessage(11, getExecutedActionInfo());
     }
     unknownFields.writeTo(output);
   }
@@ -483,6 +520,10 @@ private static final long serialVersionUID = 0L;
     if (clientActionInfo_ != null) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(10, getClientActionInfo());
+    }
+    if (executedActionInfo_ != null) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(11, getExecutedActionInfo());
     }
     size += unknownFields.getSerializedSize();
     memoizedSize = size;
@@ -545,6 +586,11 @@ private static final long serialVersionUID = 0L;
       result = result && getClientActionInfo()
           .equals(other.getClientActionInfo());
     }
+    result = result && (hasExecutedActionInfo() == other.hasExecutedActionInfo());
+    if (hasExecutedActionInfo()) {
+      result = result && getExecutedActionInfo()
+          .equals(other.getExecutedActionInfo());
+    }
     result = result && unknownFields.equals(other.unknownFields);
     return result;
   }
@@ -591,6 +637,10 @@ private static final long serialVersionUID = 0L;
     if (hasClientActionInfo()) {
       hash = (37 * hash) + CLIENT_ACTION_INFO_FIELD_NUMBER;
       hash = (53 * hash) + getClientActionInfo().hashCode();
+    }
+    if (hasExecutedActionInfo()) {
+      hash = (37 * hash) + EXECUTED_ACTION_INFO_FIELD_NUMBER;
+      hash = (53 * hash) + getExecutedActionInfo().hashCode();
     }
     hash = (29 * hash) + unknownFields.hashCode();
     memoizedHashCode = hash;
@@ -783,6 +833,12 @@ private static final long serialVersionUID = 0L;
         clientActionInfo_ = null;
         clientActionInfoBuilder_ = null;
       }
+      if (executedActionInfoBuilder_ == null) {
+        executedActionInfo_ = null;
+      } else {
+        executedActionInfo_ = null;
+        executedActionInfoBuilder_ = null;
+      }
       return this;
     }
 
@@ -853,6 +909,11 @@ private static final long serialVersionUID = 0L;
         result.clientActionInfo_ = clientActionInfo_;
       } else {
         result.clientActionInfo_ = clientActionInfoBuilder_.build();
+      }
+      if (executedActionInfoBuilder_ == null) {
+        result.executedActionInfo_ = executedActionInfo_;
+      } else {
+        result.executedActionInfo_ = executedActionInfoBuilder_.build();
       }
       onBuilt();
       return result;
@@ -928,6 +989,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasClientActionInfo()) {
         mergeClientActionInfo(other.getClientActionInfo());
+      }
+      if (other.hasExecutedActionInfo()) {
+        mergeExecutedActionInfo(other.getExecutedActionInfo());
       }
       this.mergeUnknownFields(other.unknownFields);
       onChanged();
@@ -2045,6 +2109,123 @@ private static final long serialVersionUID = 0L;
         clientActionInfo_ = null;
       }
       return clientActionInfoBuilder_;
+    }
+
+    private com.facebook.buck.remoteexecution.proto.ExecutedActionInfo executedActionInfo_ = null;
+    private com.google.protobuf.SingleFieldBuilderV3<
+        com.facebook.buck.remoteexecution.proto.ExecutedActionInfo, com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder, com.facebook.buck.remoteexecution.proto.ExecutedActionInfoOrBuilder> executedActionInfoBuilder_;
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public boolean hasExecutedActionInfo() {
+      return executedActionInfoBuilder_ != null || executedActionInfo_ != null;
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public com.facebook.buck.remoteexecution.proto.ExecutedActionInfo getExecutedActionInfo() {
+      if (executedActionInfoBuilder_ == null) {
+        return executedActionInfo_ == null ? com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.getDefaultInstance() : executedActionInfo_;
+      } else {
+        return executedActionInfoBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public Builder setExecutedActionInfo(com.facebook.buck.remoteexecution.proto.ExecutedActionInfo value) {
+      if (executedActionInfoBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        executedActionInfo_ = value;
+        onChanged();
+      } else {
+        executedActionInfoBuilder_.setMessage(value);
+      }
+
+      return this;
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public Builder setExecutedActionInfo(
+        com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder builderForValue) {
+      if (executedActionInfoBuilder_ == null) {
+        executedActionInfo_ = builderForValue.build();
+        onChanged();
+      } else {
+        executedActionInfoBuilder_.setMessage(builderForValue.build());
+      }
+
+      return this;
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public Builder mergeExecutedActionInfo(com.facebook.buck.remoteexecution.proto.ExecutedActionInfo value) {
+      if (executedActionInfoBuilder_ == null) {
+        if (executedActionInfo_ != null) {
+          executedActionInfo_ =
+            com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.newBuilder(executedActionInfo_).mergeFrom(value).buildPartial();
+        } else {
+          executedActionInfo_ = value;
+        }
+        onChanged();
+      } else {
+        executedActionInfoBuilder_.mergeFrom(value);
+      }
+
+      return this;
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public Builder clearExecutedActionInfo() {
+      if (executedActionInfoBuilder_ == null) {
+        executedActionInfo_ = null;
+        onChanged();
+      } else {
+        executedActionInfo_ = null;
+        executedActionInfoBuilder_ = null;
+      }
+
+      return this;
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder getExecutedActionInfoBuilder() {
+      
+      onChanged();
+      return getExecutedActionInfoFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    public com.facebook.buck.remoteexecution.proto.ExecutedActionInfoOrBuilder getExecutedActionInfoOrBuilder() {
+      if (executedActionInfoBuilder_ != null) {
+        return executedActionInfoBuilder_.getMessageOrBuilder();
+      } else {
+        return executedActionInfo_ == null ?
+            com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.getDefaultInstance() : executedActionInfo_;
+      }
+    }
+    /**
+     * <code>.facebook.remote_execution.ExecutedActionInfo executed_action_info = 11;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilderV3<
+        com.facebook.buck.remoteexecution.proto.ExecutedActionInfo, com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder, com.facebook.buck.remoteexecution.proto.ExecutedActionInfoOrBuilder> 
+        getExecutedActionInfoFieldBuilder() {
+      if (executedActionInfoBuilder_ == null) {
+        executedActionInfoBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+            com.facebook.buck.remoteexecution.proto.ExecutedActionInfo, com.facebook.buck.remoteexecution.proto.ExecutedActionInfo.Builder, com.facebook.buck.remoteexecution.proto.ExecutedActionInfoOrBuilder>(
+                getExecutedActionInfo(),
+                getParentForChildren(),
+                isClean());
+        executedActionInfo_ = null;
+      }
+      return executedActionInfoBuilder_;
     }
     @java.lang.Override
     public final Builder setUnknownFields(

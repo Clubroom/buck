@@ -1,21 +1,22 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
@@ -53,7 +54,7 @@ public class AuditOwnerCommand extends AbstractCommand {
           .post(
               ConsoleEvent.info(
                   "'buck audit owner' is deprecated. Please use 'buck query' instead. e.g.\n\t%s\n\n"
-                      + "The query language is documented at https://buckbuild.com/command/query.html",
+                      + "The query language is documented at https://buck.build/command/query.html",
                   QueryCommand.buildAuditOwnerQueryExpression(
                       getArguments(), shouldGenerateJsonOutput())));
     }
@@ -61,7 +62,7 @@ public class AuditOwnerCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            PerBuildStateFactory.createFactory(
+            new PerBuildStateFactory(
                     params.getTypeCoercerFactory(),
                     new DefaultConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
@@ -71,13 +72,13 @@ public class AuditOwnerCommand extends AbstractCommand {
                     params.getBuckEventBus(),
                     params.getManifestServiceSupplier(),
                     params.getFileHashCache(),
-                    params.getUnconfiguredBuildTargetFactory())
+                    params.getUnconfiguredBuildTargetFactory(),
+                    params.getHostConfiguration().orElse(UnconfiguredTargetConfiguration.INSTANCE))
                 .create(
                     createParsingContext(params.getCell(), pool.getListeningExecutorService())
                         .withSpeculativeParsing(SpeculativeParsing.ENABLED)
                         .withExcludeUnsupportedTargets(false),
-                    params.getParser().getPermState(),
-                    getTargetPlatforms())) {
+                    params.getParser().getPermState())) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params,
@@ -90,7 +91,8 @@ public class AuditOwnerCommand extends AbstractCommand {
           getArguments(),
           shouldGenerateJsonOutput(),
           ImmutableSet.of(),
-          params.getConsole().getStdOut());
+          params.getConsole().getStdOut(),
+          AbstractQueryCommand.WhichQueryCommand.QUERY);
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

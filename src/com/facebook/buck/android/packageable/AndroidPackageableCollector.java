@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.packageable;
@@ -25,7 +25,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.MoreSuppliers;
@@ -60,10 +60,11 @@ public class AndroidPackageableCollector {
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ImmutableSet<BuildTarget> resourcesToExclude;
   private final ImmutableCollection<SourcePath> nativeLibsToExclude;
-  private final ImmutableCollection<NativeLinkable> nativeLinkablesToExclude;
+  private final ImmutableCollection<NativeLinkableGroup> nativeLinkablesToExcludeGroup;
   private final ImmutableCollection<SourcePath> nativeLibAssetsToExclude;
-  private final ImmutableCollection<NativeLinkable> nativeLinkablesAssetsToExclude;
+  private final ImmutableCollection<NativeLinkableGroup> nativeLinkablesAssetsToExcludeGroup;
   private final APKModuleGraph apkModuleGraph;
+  private final AndroidPackageableFilter androidPackageableFilter;
 
   @VisibleForTesting
   public AndroidPackageableCollector(BuildTarget collectionRoot) {
@@ -82,7 +83,25 @@ public class AndroidPackageableCollector {
         ImmutableSet.of(),
         ImmutableSet.of(),
         ImmutableSet.of(),
-        apkModuleGraph);
+        apkModuleGraph,
+        new NoopAndroidPackageableFilter());
+  }
+
+  public AndroidPackageableCollector(
+      BuildTarget collectionRoot,
+      ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
+      APKModuleGraph apkModuleGraph,
+      AndroidPackageableFilter androidPackageableFilter) {
+    this(
+        collectionRoot,
+        buildTargetsToExcludeFromDex,
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        apkModuleGraph,
+        androidPackageableFilter);
   }
 
   /**
@@ -96,18 +115,20 @@ public class AndroidPackageableCollector {
       ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
       ImmutableSet<BuildTarget> resourcesToExclude,
       ImmutableCollection<SourcePath> nativeLibsToExclude,
-      ImmutableCollection<NativeLinkable> nativeLinkablesToExclude,
+      ImmutableCollection<NativeLinkableGroup> nativeLinkablesToExcludeGroup,
       ImmutableCollection<SourcePath> nativeLibAssetsToExclude,
-      ImmutableCollection<NativeLinkable> nativeLinkableAssetsToExclude,
-      APKModuleGraph apkModuleGraph) {
+      ImmutableCollection<NativeLinkableGroup> nativeLinkableGroupAssetsToExclude,
+      APKModuleGraph apkModuleGraph,
+      AndroidPackageableFilter androidPackageableFilter) {
     this.collectionRoot = collectionRoot;
     this.buildTargetsToExcludeFromDex = buildTargetsToExcludeFromDex;
     this.resourcesToExclude = resourcesToExclude;
     this.nativeLibsToExclude = nativeLibsToExclude;
-    this.nativeLinkablesToExclude = nativeLinkablesToExclude;
+    this.nativeLinkablesToExcludeGroup = nativeLinkablesToExcludeGroup;
     this.nativeLibAssetsToExclude = nativeLibAssetsToExclude;
-    this.nativeLinkablesAssetsToExclude = nativeLinkableAssetsToExclude;
+    this.nativeLinkablesAssetsToExcludeGroup = nativeLinkableGroupAssetsToExclude;
     this.apkModuleGraph = apkModuleGraph;
+    this.androidPackageableFilter = androidPackageableFilter;
     apkModuleGraph
         .getAPKModules()
         .forEach(module -> resourceCollectors.put(module, new ResourceCollector()));
@@ -149,7 +170,8 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addStringWhitelistedResourceDirectory(
       BuildTarget owner, SourcePath resourceDir) {
-    if (resourcesToExclude.contains(owner)) {
+    if (resourcesToExclude.contains(owner)
+        || androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
       return this;
     }
 
@@ -161,7 +183,8 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addResourceDirectory(
       BuildTarget owner, SourcePath resourceDir) {
-    if (resourcesToExclude.contains(owner)) {
+    if (resourcesToExclude.contains(owner)
+        || androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
       return this;
     }
     ResourceCollector collector = getResourceCollector(owner);
@@ -183,25 +206,46 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public AndroidPackageableCollector addNativeLinkable(NativeLinkable nativeLinkable) {
-    if (nativeLinkablesToExclude.contains(nativeLinkable)) {
+  /**
+   * Add a directory containing native libraries that must be packaged in a standard location so
+   * that they are accessible via the system library loader.
+   */
+  public AndroidPackageableCollector addNativeLibsDirectoryForSystemLoader(
+      BuildTarget owner, SourcePath nativeLibDir) {
+    if (nativeLibsToExclude.contains(nativeLibDir)) {
       return this;
     }
-    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
+    APKModule module = apkModuleGraph.findModuleForTarget(owner);
     if (module.isRootModule()) {
-      collectionBuilder.putNativeLinkables(module, nativeLinkable);
+      collectionBuilder.addNativeLibsDirectoriesForSystemLoader(nativeLibDir);
     } else {
-      collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
+      throw new HumanReadableException(
+          "%s which is marked as use_system_library_loader cannot be included in non-root-module %s",
+          owner, module.getName());
     }
     return this;
   }
 
-  public AndroidPackageableCollector addNativeLinkableAsset(NativeLinkable nativeLinkable) {
-    if (nativeLinkablesAssetsToExclude.contains(nativeLinkable)) {
+  public AndroidPackageableCollector addNativeLinkable(NativeLinkableGroup nativeLinkableGroup) {
+    if (nativeLinkablesToExcludeGroup.contains(nativeLinkableGroup)) {
       return this;
     }
-    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
-    collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkableGroup.getBuildTarget());
+    if (module.isRootModule()) {
+      collectionBuilder.putNativeLinkables(module, nativeLinkableGroup);
+    } else {
+      collectionBuilder.putNativeLinkablesAssets(module, nativeLinkableGroup);
+    }
+    return this;
+  }
+
+  public AndroidPackageableCollector addNativeLinkableAsset(
+      NativeLinkableGroup nativeLinkableGroup) {
+    if (nativeLinkablesAssetsToExcludeGroup.contains(nativeLinkableGroup)) {
+      return this;
+    }
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkableGroup.getBuildTarget());
+    collectionBuilder.putNativeLinkablesAssets(module, nativeLinkableGroup);
     return this;
   }
 
@@ -218,7 +262,8 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addAssetsDirectory(
       BuildTarget owner, SourcePath assetsDirectory) {
-    if (resourcesToExclude.contains(owner)) {
+    if (resourcesToExclude.contains(owner)
+        || androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
       return this;
     }
 
@@ -232,7 +277,8 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addProguardConfig(
       BuildTarget owner, SourcePath proguardConfig) {
-    if (!buildTargetsToExcludeFromDex.contains(owner)) {
+    if (!buildTargetsToExcludeFromDex.contains(owner)
+        && !androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
       collectionBuilder.addProguardConfigs(proguardConfig);
     }
     return this;
@@ -241,6 +287,9 @@ public class AndroidPackageableCollector {
   public AndroidPackageableCollector addClasspathEntry(
       HasJavaClassHashes hasJavaClassHashes, SourcePath classpathEntry) {
     BuildTarget target = hasJavaClassHashes.getBuildTarget();
+    if (androidPackageableFilter.shouldExcludeNonNativeTarget(target)) {
+      return this;
+    }
     if (buildTargetsToExcludeFromDex.contains(target)) {
       collectionBuilder.addNoDxClasspathEntries(classpathEntry);
     } else {
@@ -261,6 +310,9 @@ public class AndroidPackageableCollector {
    * @return this
    */
   public AndroidPackageableCollector addManifestPiece(BuildTarget owner, SourcePath manifest) {
+    if (androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
+      return this;
+    }
     collectionBuilder.putAndroidManifestPieces(
         apkModuleGraph.findResourceModuleForTarget(owner), manifest);
     return this;
@@ -268,6 +320,9 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addPathToThirdPartyJar(
       BuildTarget owner, SourcePath pathToThirdPartyJar) {
+    if (androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
+      return this;
+    }
     if (buildTargetsToExcludeFromDex.contains(owner)) {
       collectionBuilder.addNoDxClasspathEntries(pathToThirdPartyJar);
     } else {
@@ -277,7 +332,10 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public void addBuildConfig(String javaPackage, BuildConfigFields constants) {
+  public void addBuildConfig(BuildTarget owner, String javaPackage, BuildConfigFields constants) {
+    if (androidPackageableFilter.shouldExcludeNonNativeTarget(owner)) {
+      return;
+    }
     if (buildConfigs.containsKey(javaPackage)) {
       throw new HumanReadableException(
           "Multiple android_build_config() rules with the same package %s in the "

@@ -1,3 +1,3 @@
-pub fn common() {
-  println!("Common called");
+pub fn common_func() {
+    println!("Common called");
 }

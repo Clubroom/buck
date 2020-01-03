@@ -1,37 +1,38 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.multitenant.service
 
+import com.facebook.buck.core.model.RuleType
 import com.facebook.buck.core.model.UnconfiguredBuildTarget
+import com.facebook.buck.core.path.ForwardRelativePath
 import com.facebook.buck.multitenant.fs.FsAgnosticPath
-import com.facebook.buck.multitenant.importer.FAKE_RULE_TYPE
-import com.facebook.buck.multitenant.importer.ServiceRawTargetNode
-import com.facebook.buck.multitenant.importer.parseOrdinaryBuildTarget
 import com.google.common.collect.ImmutableMap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private val FAKE_RULE_TYPE: RuleType = RuleTypeFactory.createBuildRule("fake_rule")
+
 class MapDiffTest {
 
     @Test
     fun emptyRulesShouldHaveNoDeltas() {
-        val oldRules = setOf<InternalRawBuildRule>()
+        val oldRules = listOf<InternalRawBuildRule>()
         val newRules = setOf<InternalRawBuildRule>()
         val deltas = diffRules(oldRules, newRules)
         assertTrue(deltas.isEmpty())
@@ -39,29 +40,29 @@ class MapDiffTest {
 
     @Test
     fun emptyOldRulesWithNewRules() {
-        val oldRules = setOf<InternalRawBuildRule>()
+        val oldRules = listOf<InternalRawBuildRule>()
         val newRules = setOf(createRule("one", intArrayOf(1)), createRule("two", intArrayOf(2, 3)))
         val deltas = diffRules(oldRules, newRules)
         assertEquals(setOf(
-                RuleDelta.Updated(createRule("one", intArrayOf(1))),
-                RuleDelta.Updated(createRule("two", intArrayOf(2, 3)))
+                RuleDelta.Added(createRule("one", intArrayOf(1))),
+                RuleDelta.Added(createRule("two", intArrayOf(2, 3)))
         ), deltas.toSet())
     }
 
     @Test
     fun nonEmptyOldRulesWithEmptyNewRules() {
-        val oldRules = setOf(createRule("one", intArrayOf(1)), createRule("two", intArrayOf(2, 3)))
+        val oldRules = listOf(createRule("one", intArrayOf(1)), createRule("two", intArrayOf(2, 3)))
         val newRules = setOf<InternalRawBuildRule>()
         val deltas = diffRules(oldRules, newRules)
         assertEquals(setOf(
-                RuleDelta.Removed(createBuildTarget("one")),
-                RuleDelta.Removed(createBuildTarget("two"))
+                RuleDelta.Removed(createRule("one", intArrayOf(1))),
+                RuleDelta.Removed(createRule("two", intArrayOf(2, 3)))
         ), deltas.toSet())
     }
 
     @Test
     fun detectModifiedRulesWithSameSizeMaps() {
-        val oldRules = setOf(
+        val oldRules = listOf(
                 createRule("foo", intArrayOf(1)),
                 createRule("bar", intArrayOf(2)),
                 createRule("baz", intArrayOf(4, 5)))
@@ -71,14 +72,14 @@ class MapDiffTest {
                 createRule("baz", intArrayOf(5)))
         val deltas = diffRules(oldRules, newRules)
         assertEquals(setOf(
-                RuleDelta.Updated(createRule("bar", intArrayOf(2, 3))),
-                RuleDelta.Updated(createRule("baz", intArrayOf(5)))
+                RuleDelta.Modified(createRule("bar", intArrayOf(2, 3)), createRule("bar", intArrayOf(2))),
+                RuleDelta.Modified(createRule("baz", intArrayOf(5)), createRule("baz", intArrayOf(4, 5)))
         ), deltas.toSet())
     }
 
     @Test
     fun detectModifiedRulesWithMoreOldRules() {
-        val oldRules = setOf(
+        val oldRules = listOf(
                 createRule("foo", intArrayOf(1)),
                 createRule("bar", intArrayOf(2)),
                 createRule("baz", intArrayOf(4, 5)),
@@ -89,15 +90,15 @@ class MapDiffTest {
                 createRule("baz", intArrayOf(5)))
         val deltas = diffRules(oldRules, newRules)
         assertEquals(setOf(
-                RuleDelta.Updated(createRule("bar", intArrayOf(2, 3))),
-                RuleDelta.Updated(createRule("baz", intArrayOf(5))),
-                RuleDelta.Removed(createBuildTarget("foobazbar"))
+                RuleDelta.Modified(createRule("bar", intArrayOf(2, 3)), createRule("bar", intArrayOf(2))),
+                RuleDelta.Modified(createRule("baz", intArrayOf(5)), createRule("baz", intArrayOf(4, 5))),
+                RuleDelta.Removed(createRule("foobazbar", intArrayOf(0)))
         ), deltas.toSet())
     }
 
     @Test
     fun detectModifiedRulesWithMoreNewRules() {
-        val oldRules = setOf(
+        val oldRules = listOf(
                 createRule("foo", intArrayOf(1)),
                 createRule("bar", intArrayOf(2)),
                 createRule("baz", intArrayOf(4, 5)))
@@ -108,9 +109,9 @@ class MapDiffTest {
                 createRule("foobazbar", intArrayOf(0)))
         val deltas = diffRules(oldRules, newRules)
         assertEquals(setOf(
-                RuleDelta.Updated(createRule("bar", intArrayOf(2, 3))),
-                RuleDelta.Updated(createRule("baz", intArrayOf(5))),
-                RuleDelta.Updated(createRule("foobazbar", intArrayOf(0)))
+                RuleDelta.Modified(createRule("bar", intArrayOf(2, 3)), createRule("bar", intArrayOf(2))),
+                RuleDelta.Modified(createRule("baz", intArrayOf(5)), createRule("baz", intArrayOf(4, 5))),
+                RuleDelta.Added(createRule("foobazbar", intArrayOf(0)))
         ), deltas.toSet())
     }
 
@@ -124,9 +125,9 @@ class MapDiffTest {
     }
 }
 
-private val BUILD_FILE_DIRECTORY: FsAgnosticPath = FsAgnosticPath.of("foo")
+private val BUILD_FILE_DIRECTORY: ForwardRelativePath = FsAgnosticPath.of("foo")
 private val BUILD_TARGET_PARSER: ((shortOrFullyQualifiedName: String) -> UnconfiguredBuildTarget) = {
-    parseOrdinaryBuildTarget("//%s:%s".format(BUILD_FILE_DIRECTORY, it))
+    BuildTargets.createBuildTargetFromParts(BUILD_FILE_DIRECTORY, it)
 }
 
 private fun createBuildTarget(shortName: String): UnconfiguredBuildTarget {
@@ -135,6 +136,8 @@ private fun createBuildTarget(shortName: String): UnconfiguredBuildTarget {
 
 private fun createRule(shortName: String, deps: BuildTargetSet): InternalRawBuildRule {
     val buildTarget = createBuildTarget(shortName)
-    val node = ServiceRawTargetNode(buildTarget, FAKE_RULE_TYPE, ImmutableMap.of())
+    val node =
+        ServiceUnconfiguredTargetNode(buildTarget, FAKE_RULE_TYPE,
+            ImmutableMap.of())
     return InternalRawBuildRule(node, deps)
 }

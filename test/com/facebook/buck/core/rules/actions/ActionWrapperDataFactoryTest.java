@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.core.rules.actions;
 
 import static org.junit.Assert.assertEquals;
@@ -20,20 +21,25 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.artifact.Artifact;
+import com.facebook.buck.core.artifact.BuildArtifact;
+import com.facebook.buck.core.artifact.ImmutableSourceArtifactImpl;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory.DeclaredArtifact;
-import com.facebook.buck.core.rules.actions.Artifact.BuildArtifact;
+import com.facebook.buck.core.model.impl.BuildPaths;
+import com.facebook.buck.core.rules.analysis.action.ActionAnalysisData;
+import com.facebook.buck.core.rules.analysis.action.ActionAnalysisDataKey;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.util.function.TriFunction;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -44,44 +50,42 @@ public class ActionWrapperDataFactoryTest {
 
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
+  private final ProjectFilesystem filesystem = new FakeProjectFilesystem();
   private FakeActionAnalysisRegistry actionAnalysisDataRegistry;
-  private ActionWrapperDataFactory actionWrapperDataFactory;
 
   @Before
   public void setUp() {
     actionAnalysisDataRegistry = new FakeActionAnalysisRegistry();
-    actionWrapperDataFactory = new ActionWrapperDataFactory(actionAnalysisDataRegistry);
   }
 
   @Test
-  public void canCreateActionWrapperData() throws ActionCreationException {
+  public void createsAndRegistersActionAnalysisWrapperDataForAction()
+      throws ActionCreationException {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget target = BuildTargetFactory.newInstance("//my:foo");
-    ImmutableSet<Artifact> inputs =
-        ImmutableSet.of(
-            ImmutableSourceArtifact.of(PathSourcePath.of(filesystem, Paths.get("myinput"))));
-    ImmutableSet<DeclaredArtifact> outputs =
-        ImmutableSet.of(actionWrapperDataFactory.declareArtifact(Paths.get("myoutput")));
+    ActionRegistry actionRegistry =
+        new DefaultActionRegistry(target, actionAnalysisDataRegistry, filesystem);
+    ImmutableSortedSet<Artifact> inputs =
+        ImmutableSortedSet.of(
+            ImmutableSourceArtifactImpl.of(PathSourcePath.of(filesystem, Paths.get("myinput"))));
 
-    TriFunction<
-            ImmutableSet<Artifact>,
-            ImmutableSet<BuildArtifact>,
-            ActionExecutionContext,
-            ActionExecutionResult>
-        executeFunc =
-            (inputs1, outputs1, executionContext) ->
-                ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
-    ImmutableMap<DeclaredArtifact, BuildArtifact> materializedArtifactMap =
-        actionWrapperDataFactory.createActionAnalysisData(
-            FakeAction.class, target, inputs, outputs, executeFunc);
+    Artifact output = actionRegistry.declareArtifact(Paths.get("myoutput"));
+    ImmutableSortedSet<Artifact> outputs = ImmutableSortedSet.of(output);
 
-    assertThat(materializedArtifactMap.entrySet(), Matchers.hasSize(1));
+    FakeAction.FakeActionExecuteLambda executeFunc =
+        (srcs, inputs1, outputs1, executionContext) ->
+            ImmutableActionExecutionSuccess.of(
+                Optional.empty(), Optional.empty(), ImmutableList.of());
+
+    new FakeAction(actionRegistry, ImmutableSortedSet.of(), inputs, outputs, executeFunc);
+
+    BuildArtifact buildArtifact = Objects.requireNonNull(output.asBound().asBuildArtifact());
 
     ImmutableMap<ActionAnalysisDataKey, ActionAnalysisData> registered =
         actionAnalysisDataRegistry.getRegistered();
-    BuildArtifact builtArtifact = materializedArtifactMap.get(Iterables.getOnlyElement(outputs));
-    ActionAnalysisData analysisData = registered.get(builtArtifact.getActionDataKey());
+
+    ActionAnalysisData analysisData = registered.get(buildArtifact.getActionDataKey());
     assertNotNull(analysisData);
     assertThat(analysisData, Matchers.instanceOf(ActionWrapperData.class));
 
@@ -91,63 +95,45 @@ public class ActionWrapperDataFactoryTest {
     assertThat(action, Matchers.instanceOf(FakeAction.class));
 
     assertThat(action.getOutputs(), Matchers.hasSize(1));
-    assertEquals(Paths.get("myoutput"), builtArtifact.getPath().getResolvedPath());
-    assertSame(target, builtArtifact.getPath().getTarget());
-    assertSame(target, builtArtifact.getActionDataKey().getBuildTarget());
+    assertEquals(
+        ExplicitBuildTargetSourcePath.of(
+            target, BuildPaths.getGenDir(filesystem, target).resolve("myoutput")),
+        output.asBound().getSourcePath());
 
-    assertSame(data.getKey(), builtArtifact.getActionDataKey());
+    assertSame(data.getKey(), buildArtifact.getActionDataKey());
 
-    assertSame(inputs, action.getInputs());
+    assertEquals(inputs, action.getInputs());
 
     assertSame(executeFunc, ((FakeAction) action).getExecuteFunction());
   }
 
   @Test
-  public void createThrowsWhenWrongConstructorArgType() throws ActionCreationException {
-    expectedException.expect(ActionCreationException.class);
-
+  public void createsActionOutputUsingBasePath() throws ActionCreationException {
     BuildTarget target = BuildTargetFactory.newInstance("//my:foo");
-    ImmutableSet<Artifact> inputs = ImmutableSet.of();
-    ImmutableSet<DeclaredArtifact> outputs =
-        ImmutableSet.of(actionWrapperDataFactory.declareArtifact(Paths.get("myoutput")));
 
-    Function<ActionExecutionContext, ActionExecutionResult> executeFunc =
-        executionContext -> ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
-    actionWrapperDataFactory.createActionAnalysisData(
-        FakeAction.class, target, inputs, outputs, executeFunc);
-  }
+    ActionRegistry actionRegistry =
+        new DefaultActionRegistry(target, actionAnalysisDataRegistry, filesystem);
 
-  @Test
-  public void createThrowsWhenWrongConstructorArgNumber() throws ActionCreationException {
-    expectedException.expect(ActionCreationException.class);
+    ImmutableSortedSet<Artifact> inputs = ImmutableSortedSet.of();
+    Artifact output = actionRegistry.declareArtifact(Paths.get("myoutput"));
 
-    BuildTarget target = BuildTargetFactory.newInstance("//my:foo");
-    ImmutableSet<Artifact> inputs = ImmutableSet.of();
-    ImmutableSet<DeclaredArtifact> outputs =
-        ImmutableSet.of(ImmutableDeclaredArtifact.of(Paths.get("myoutput")));
+    Path expectedBasePath = BuildPaths.getGenDir(filesystem, target);
 
-    TriFunction<
-            ImmutableSet<Artifact>,
-            ImmutableSet<BuildArtifact>,
-            ActionExecutionContext,
-            ActionExecutionResult>
-        executeFunc =
-            (inputs1, outputs1, executionContext) ->
-                ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
-    actionWrapperDataFactory.createActionAnalysisData(
-        FakeAction.class, target, inputs, outputs, executeFunc, new Object());
-  }
+    FakeAction.FakeActionExecuteLambda executeFunc =
+        (srcs, inputs1, outputs1, executionContext) ->
+            ImmutableActionExecutionSuccess.of(
+                Optional.empty(), Optional.empty(), ImmutableList.of());
 
-  @Test
-  public void createThrowsWhenAbstractClass() throws ActionCreationException {
-    expectedException.expect(ActionCreationException.class);
+    new FakeAction(
+        actionRegistry,
+        ImmutableSortedSet.of(),
+        inputs,
+        ImmutableSortedSet.of(output),
+        executeFunc);
 
-    BuildTarget target = BuildTargetFactory.newInstance("//my:foo");
-    ImmutableSet<Artifact> inputs = ImmutableSet.of();
-    ImmutableSet<DeclaredArtifact> outputs =
-        ImmutableSet.of(actionWrapperDataFactory.declareArtifact(Paths.get("myoutput")));
-
-    actionWrapperDataFactory.createActionAnalysisData(
-        AbstractAction.class, target, inputs, outputs);
+    BuildArtifact builtArtifact = Objects.requireNonNull(output.asBound().asBuildArtifact());
+    assertEquals(
+        ExplicitBuildTargetSourcePath.of(target, expectedBasePath.resolve("myoutput")),
+        builtArtifact.getSourcePath());
   }
 }

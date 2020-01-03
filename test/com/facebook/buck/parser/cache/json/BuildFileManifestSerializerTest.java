@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser.cache.json;
@@ -21,6 +21,8 @@ import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
+import com.facebook.buck.parser.exceptions.ImmutableParsingError;
+import com.facebook.buck.parser.exceptions.ParsingError;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.util.environment.Platform;
@@ -79,7 +81,13 @@ public class BuildFileManifestSerializerTest {
     ImmutableMap<String, ImmutableMap<String, Object>> targets =
         ImmutableMap.of("tar1", target1, "tar2", target2);
 
-    return ImmutableBuildFileManifest.of(targets, includes, configs, Optional.of(envs), globSpecs);
+    ImmutableList<ParsingError> errors =
+        ImmutableList.of(
+            ImmutableParsingError.of("error1", ImmutableList.of("stack1", "stack2")),
+            ImmutableParsingError.of("error2", ImmutableList.of()));
+
+    return ImmutableBuildFileManifest.of(
+        targets, includes, configs, Optional.of(envs), globSpecs, errors);
   }
 
   @Test
@@ -100,6 +108,10 @@ public class BuildFileManifestSerializerTest {
     assertTrue(resultString.contains("t2V1"));
     assertTrue(resultString.contains("confKey1"));
     assertTrue(resultString.contains("confVal1"));
+    assertTrue(resultString.contains("error1"));
+    assertTrue(resultString.contains("stack1"));
+    assertTrue(resultString.contains("stack2"));
+    assertTrue(resultString.contains("error2"));
   }
 
   @Test

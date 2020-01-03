@@ -1,28 +1,28 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
 
 import com.facebook.buck.command.config.BuildBuckConfig;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
@@ -35,7 +35,6 @@ import com.facebook.buck.rules.modern.tools.IsolationChecker.FailureReporter;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -79,7 +78,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
         throw new CommandLineException("must specify at least one build target");
       }
 
-      TargetGraph targetGraph;
+      TargetGraphCreationResult targetGraph;
       try (CommandThreadManager pool =
           new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()))) {
         targetGraph =
@@ -97,9 +96,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
         return ExitCode.PARSE_ERROR;
       }
       if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-        targetGraph =
-            toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
-                .getTargetGraph();
+        targetGraph = toVersionedTargetGraph(params, targetGraph);
       }
 
       ActionGraphBuilder graphBuilder =
@@ -110,6 +107,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
                               params.getBuckEventBus(),
                               params.getCell().getCellProvider(),
                               params.getExecutors(),
+                              params.getDepsAwareExecutorSupplier(),
                               params.getBuckConfig()),
                           new ActionGraphCache(
                               params
@@ -210,7 +208,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
           failuresByMessageAndPackage.computeIfAbsent(
               error, ignored -> new ByPackageFailureRecorder(error));
       failuresByMessage.record(
-          buildTarget.getCell().orElse("") + "//" + buildTarget.getBaseName(),
+          buildTarget.getCell().getName() + "//" + buildTarget.getBaseName(),
           buildTarget.getFullyQualifiedName());
     }
 

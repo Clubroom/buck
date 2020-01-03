@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx.config;
@@ -81,6 +81,7 @@ public class CxxBuckConfig {
   private static final String ARCHIVER_TYPE = "archiver_type";
   private static final String MAX_TEST_OUTPUT_SIZE = "max_test_output_size";
   private static final String LINKER_PLATFORM = "linker_platform";
+  private static final String LINK_GROUPS_ENABLED = "link_groups_enabled";
   private static final String UNTRACKED_HEADERS = "untracked_headers";
   private static final String UNTRACKED_HEADERS_WHITELIST = "untracked_headers_whitelist";
   private static final String EXPORTED_HEADERS_SYMLINKS_ENABLED =
@@ -115,6 +116,8 @@ public class CxxBuckConfig {
   private static final String USE_ARG_FILE = "use_arg_file";
   private static final String TOOLCHAIN_TARGET = "toolchain_target";
   private static final String FILEPATH_LENGTH_LIMITED = "filepath_length_limited";
+
+  private static final String CHECK_GTEST_TEST_LIST = "check_gtest_test_list";
 
   private static final String OBJCOPY = "objcopy";
   private static final String NM = "nm";
@@ -426,6 +429,14 @@ public class CxxBuckConfig {
         .build();
   }
 
+  public Optional<Boolean> getLinkGroupsEnabledSetting() {
+    return delegate.getBoolean(cxxSection, LINK_GROUPS_ENABLED);
+  }
+
+  public boolean getLinkGroupsEnabled() {
+    return getLinkGroupsEnabledSetting().orElse(false);
+  }
+
   public Optional<Boolean> getPublicHeadersSymlinksSetting() {
     return delegate.getBoolean(cxxSection, EXPORTED_HEADERS_SYMLINKS_ENABLED);
   }
@@ -458,6 +469,10 @@ public class CxxBuckConfig {
 
   public boolean shouldCacheBinaries() {
     return delegate.getBooleanValue(cxxSection, CACHE_BINARIES, false);
+  }
+
+  public boolean checkGTestTestList() {
+    return delegate.getBooleanValue(cxxSection, CHECK_GTEST_TEST_LIST, false);
   }
 
   public boolean isPCHEnabled() {
@@ -499,8 +514,8 @@ public class CxxBuckConfig {
     return getPath(name).map(this::getSourcePath).map(HashedFileTool::new);
   }
 
-  public Optional<Tool> getNm() {
-    return getTool(NM);
+  public Optional<ToolProvider> getNm() {
+    return getToolProvider(NM);
   }
 
   public Optional<Tool> getStrip() {
@@ -516,25 +531,24 @@ public class CxxBuckConfig {
   }
 
   /** @return whether to enable shared library interfaces. */
-  public SharedLibraryInterfaceParams.Type getSharedLibraryInterfaces() {
+  public Optional<SharedLibraryInterfaceParams.Type> getSharedLibraryInterfaces() {
 
     // Check for an explicit setting.
     Optional<SharedLibraryInterfaceParams.Type> setting =
         delegate.getEnum(cxxSection, SHLIB_INTERFACES, SharedLibraryInterfaceParams.Type.class);
     if (setting.isPresent()) {
-      return setting.get();
+      return setting;
     }
 
     // For backwards compatibility, check the older boolean setting.
     Optional<Boolean> oldSetting = delegate.getBoolean(cxxSection, SHARED_LIBRARY_INTERFACES);
     if (oldSetting.isPresent()) {
       return oldSetting.get()
-          ? SharedLibraryInterfaceParams.Type.ENABLED
-          : SharedLibraryInterfaceParams.Type.DISABLED;
+          ? Optional.of(SharedLibraryInterfaceParams.Type.ENABLED)
+          : Optional.of(SharedLibraryInterfaceParams.Type.DISABLED);
     }
 
-    // Default.
-    return SharedLibraryInterfaceParams.Type.DISABLED;
+    return Optional.empty();
   }
 
   /**

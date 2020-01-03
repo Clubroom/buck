@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.support.bgtasks;
 
 import static org.junit.Assert.assertEquals;
@@ -23,6 +24,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import java.util.concurrent.Future;
@@ -67,7 +69,7 @@ public class TaskManagerCommandScopeTest {
     scope.schedule(task1);
     scope.schedule(task2);
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks = scope.getScheduledTasksResults();
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks = scope.getScheduledTasksResults();
 
     assertTrue(scheduledTasks.containsKey(task1));
     assertTrue(scheduledTasks.containsKey(task2));
@@ -85,7 +87,7 @@ public class TaskManagerCommandScopeTest {
     BackgroundTask<?> task = ImmutableBackgroundTask.of("test1", ignored -> fail(), new Object());
     scope.schedule(task);
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks = scope.getScheduledTasksResults();
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks = scope.getScheduledTasksResults();
 
     assertFalse(scheduledTasks.containsKey(task));
   }
@@ -100,14 +102,14 @@ public class TaskManagerCommandScopeTest {
     scope.schedule(task1);
     scope.schedule(task2);
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks = scope.getScheduledTasksResults();
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks = scope.getScheduledTasksResults();
 
     assertTrue(scheduledTasks.containsKey(task1));
     assertTrue(scheduledTasks.containsKey(task2));
 
     scope.close();
 
-    for (Future<Void> f : scheduledTasks.values()) {
+    for (Future<Unit> f : scheduledTasks.values()) {
       assertTrue(f.isDone());
     }
   }
@@ -131,13 +133,13 @@ public class TaskManagerCommandScopeTest {
     scope2.close();
     scope1.close();
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks1 =
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks1 =
         scope1.getScheduledTasksResults();
 
     assertTrue(scheduledTasks1.containsKey(task1));
     assertTrue(scheduledTasks1.get(task1).isDone());
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks2 =
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks2 =
         scope2.getScheduledTasksResults();
 
     assertTrue(scheduledTasks2.containsKey(task2));
@@ -159,14 +161,14 @@ public class TaskManagerCommandScopeTest {
     scope.schedule(task1);
     scope.schedule(task2);
 
-    ImmutableMap<BackgroundTask<?>, Future<Void>> scheduledTasks = scope.getScheduledTasksResults();
+    ImmutableMap<BackgroundTask<?>, Future<Unit>> scheduledTasks = scope.getScheduledTasksResults();
 
     assertTrue(scheduledTasks.containsKey(task1));
     assertTrue(scheduledTasks.containsKey(task2));
 
     scope.close();
 
-    for (Future<Void> f : scheduledTasks.values()) {
+    for (Future<Unit> f : scheduledTasks.values()) {
       assertFalse(f.isDone());
     }
   }

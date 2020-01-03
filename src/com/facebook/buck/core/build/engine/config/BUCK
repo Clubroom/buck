@@ -3,8 +3,8 @@ load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 java_immutables_library(
     name = "config",
     srcs = [
-        "AbstractCachingBuildEngineBuckConfig.java",
-        "AbstractResourceAwareSchedulingInfo.java",
+        "CachingBuildEngineBuckConfig.java",
+        "ResourceAwareSchedulingInfo.java",
     ],
     exported_deps = [
         "//src/com/facebook/buck/core/build/engine/type:type",

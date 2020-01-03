@@ -1,16 +1,16 @@
-# Copyright 2019-present Facebook, Inc.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
-# Licensed under the Apache License, Version 2.0 (the "License"); you may
-# not use this file except in compliance with the License. You may obtain
-# a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-# License for the specific language governing permissions and limitations
-# under the License.
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 import os
@@ -18,8 +18,9 @@ import re
 import sys
 import textwrap
 
-from buck_tool import BuckToolException
-from subprocutils import which
+from programs.buck_tool import BuckToolException
+from programs.subprocutils import which
+
 
 JDK_8_AND_UNDER_PATH_VERSION_REGEX_STRING = r"jdk(1\.(\d+)(\.\d+(_\d+)?)?)(\.jdk)?"
 JDK_9_AND_OVER_PATH_VERSION_REGEX_STRING = r"jdk-((\d+)(\.\d+(\.\d+(_\d+)?)?)?)(\.jdk)?"
@@ -36,22 +37,22 @@ JDK_PATH_REGEXES = [
     re.compile(
         r"^/Library/Java/JavaVirtualMachines/"
         + JDK_8_AND_UNDER_PATH_VERSION_REGEX_STRING
-        + "/Contents/Home$"
+        + "/Contents/Home/*$"
     ),
     re.compile(
         r"^/Library/Java/JavaVirtualMachines/"
         + JDK_9_AND_OVER_PATH_VERSION_REGEX_STRING
-        + "/Contents/Home$"
+        + "/Contents/Home/*$"
     ),
     re.compile(
         "^C:\\\\Program Files\\\\Java\\\\"
         + JDK_8_AND_UNDER_PATH_VERSION_REGEX_STRING
-        + "$"
+        + "(\\\\)*$"
     ),
     re.compile(
         "^C:\\\\Program Files\\\\Java\\\\"
         + JDK_9_AND_OVER_PATH_VERSION_REGEX_STRING
-        + "$"
+        + "(\\\\)*$"
     ),
 ]
 

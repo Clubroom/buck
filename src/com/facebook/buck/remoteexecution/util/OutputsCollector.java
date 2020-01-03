@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.remoteexecution.util;
 
 import com.facebook.buck.remoteexecution.UploadDataSupplier;
@@ -24,7 +25,7 @@ import com.facebook.buck.remoteexecution.interfaces.Protocol.OutputDirectory;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.OutputFile;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.Tree;
 import com.facebook.buck.remoteexecution.util.MerkleTreeNodeCache.MerkleTreeNode;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -181,13 +182,16 @@ public class OutputsCollector {
 
         MerkleTreeNodeCache merkleTreeCache = new MerkleTreeNodeCache(protocol);
 
-        MerkleTreeNode node = merkleTreeCache.createNode(files, ImmutableMap.of());
+        MerkleTreeNode node =
+            merkleTreeCache.createNode(files, ImmutableMap.of(), ImmutableMap.of());
 
         node.forAllFiles(
             (file, fileNode) ->
                 requiredDataBuilder.add(
                     UploadDataSupplier.of(
-                        fileNode.getDigest(), () -> delegate.getInputStream(path.resolve(file)))));
+                        file.getFileName().toString(),
+                        fileNode.getDigest(),
+                        () -> delegate.getInputStream(path.resolve(file)))));
 
         List<Directory> directories = new ArrayList<>();
         merkleTreeCache.forAllData(node, data -> directories.add(data.getDirectory()));
@@ -199,14 +203,15 @@ public class OutputsCollector {
 
         outputDirectoriesBuilder.add(protocol.newOutputDirectory(output, treeDigest));
         requiredDataBuilder.add(
-            UploadDataSupplier.of(treeDigest, () -> new ByteArrayInputStream(treeData)));
+            UploadDataSupplier.of("tree", treeDigest, () -> new ByteArrayInputStream(treeData)));
       } else {
         long size = delegate.size(path);
         boolean isExecutable = delegate.isExecutable(path);
         Digest digest = protocol.newDigest(hashFile(path).toString(), (int) size);
 
         UploadDataSupplier dataSupplier =
-            UploadDataSupplier.of(digest, () -> delegate.getInputStream(path));
+            UploadDataSupplier.of(
+                path.getFileName().toString(), digest, () -> delegate.getInputStream(path));
         outputFilesBuilder.add(protocol.newOutputFile(output, digest, isExecutable));
         requiredDataBuilder.add(dataSupplier);
       }

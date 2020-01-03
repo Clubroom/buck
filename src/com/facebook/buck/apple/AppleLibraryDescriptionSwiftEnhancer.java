@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple;
@@ -24,7 +24,7 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.cxx.CxxLibrary;
+import com.facebook.buck.cxx.CxxLibraryGroup;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.PreprocessorFlags;
@@ -38,7 +38,9 @@ import com.facebook.buck.swift.SwiftCompile;
 import com.facebook.buck.swift.SwiftDescriptions;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.swift.toolchain.SwiftPlatform;
+import com.facebook.buck.swift.toolchain.SwiftTargetTriple;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,7 +50,6 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class AppleLibraryDescriptionSwiftEnhancer {
-  @SuppressWarnings("unused")
   public static BuildRule createSwiftCompileRule(
       BuildTarget target,
       CellPathResolver cellRoots,
@@ -64,6 +65,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
     SwiftLibraryDescriptionArg.Builder delegateArgsBuilder = SwiftLibraryDescriptionArg.builder();
     SwiftDescriptions.populateSwiftLibraryDescriptionArg(
         swiftBuckConfig, graphBuilder.getSourcePathResolver(), delegateArgsBuilder, args, target);
+    delegateArgsBuilder.setTargetSdkVersion(args.getTargetSdkVersion());
     SwiftLibraryDescriptionArg swiftArgs = delegateArgsBuilder.build();
 
     Preprocessor preprocessor =
@@ -88,9 +90,11 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         AppleLibraryDescription.underlyingModuleCxxPreprocessorInput(
             target, graphBuilder, platform);
 
+    SwiftPlatform swiftPlatform = applePlatform.getSwiftPlatform().get();
+
     return SwiftLibraryDescription.createSwiftCompileRule(
         platform,
-        applePlatform.getSwiftPlatform().get(),
+        swiftPlatform,
         swiftBuckConfig,
         target,
         paramsWithDeps,
@@ -100,7 +104,14 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         swiftArgs,
         preprocessor,
         preprocessorFlags,
-        underlyingModule.isPresent());
+        underlyingModule.isPresent(),
+        args.getTargetSdkVersion()
+            .map(
+                version ->
+                    SwiftTargetTriple.builder()
+                        .from(swiftPlatform.getSwiftTarget())
+                        .setTargetSdkVersion(version)
+                        .build()));
   }
 
   /**
@@ -112,7 +123,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
       ActionGraphBuilder graphBuilder,
       CxxPlatform platform,
       AppleNativeTargetDescriptionArg arg) {
-    CxxLibrary lib = (CxxLibrary) graphBuilder.requireRule(target.withFlavors());
+    CxxLibraryGroup lib = (CxxLibraryGroup) graphBuilder.requireRule(target.withFlavors());
     ImmutableMap<BuildTarget, CxxPreprocessorInput> transitiveMap =
         TransitiveCxxPreprocessorInputCache.computeTransitiveCxxToPreprocessorInputMap(
             platform, lib, false, graphBuilder);
@@ -143,7 +154,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
     Path outputPath = BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s");
 
     return HeaderSymlinkTreeWithHeaderMap.create(
-        buildTarget, projectFilesystem, outputPath, headers, graphBuilder);
+        buildTarget, projectFilesystem, outputPath, headers);
   }
 
   public static ImmutableMap<Path, SourcePath> getObjCGeneratedHeader(

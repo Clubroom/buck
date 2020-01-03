@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.go;
@@ -22,10 +22,21 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.json.ObjectMappers;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,7 +52,7 @@ public class GoTestIntegrationTest {
   public ProjectWorkspace workspace;
 
   @Before
-  public void ensureGoIsAvailable() throws IOException {
+  public void ensureGoIsAvailable() {
     GoAssumptions.assumeGoCompilerAvailable();
   }
 
@@ -49,6 +60,46 @@ public class GoTestIntegrationTest {
   public void setUp() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "go_test", tmp);
     workspace.setUp();
+  }
+
+  @Test
+  public void testProtocolGoTestRuleShouldBuildAndGenerateSpec()
+      throws IOException, InterruptedException {
+    // This test should pass.
+    ProcessResult result =
+        workspace.runBuckCommand("test", "--config", "test.external_runner=echo", "//:testx");
+    result.assertSuccess();
+
+    Path specOutput =
+        workspace.getPath(
+            workspace.getBuckPaths().getScratchDir().resolve("external_runner_specs.json"));
+    JsonParser parser = ObjectMappers.createParser(specOutput);
+
+    ArrayNode node = parser.readValueAsTree();
+    JsonNode spec = node.get(0).get("specs");
+
+    assertEquals("spec", spec.get("my").textValue());
+
+    JsonNode other = spec.get("other");
+    assertTrue(other.isArray());
+    assertTrue(other.has(0));
+    assertEquals("stuff", other.get(0).get("complicated").textValue());
+    assertEquals(1, other.get(0).get("integer").intValue());
+    assertEquals(1.2, other.get(0).get("double").doubleValue(), 0);
+    assertTrue(other.get(0).get("boolean").booleanValue());
+
+    String cmd = spec.get("cmd").textValue();
+
+    Path script = Files.createTempFile("bash", "script");
+    Files.write(script, cmd.getBytes(Charsets.UTF_8));
+    MostFiles.makeExecutable(script);
+
+    DefaultProcessExecutor processExecutor =
+        new DefaultProcessExecutor(Console.createNullConsole());
+    ProcessExecutor.Result processResult =
+        processExecutor.launchAndExecute(
+            ProcessExecutorParams.builder().addCommand(script.toString()).build());
+    assertEquals(0, processResult.getExitCode());
   }
 
   @Test
@@ -86,13 +137,13 @@ public class GoTestIntegrationTest {
 
   @Ignore
   @Test
-  public void testGoInternalTest() throws IOException {
+  public void testGoInternalTest() {
     ProcessResult result1 = workspace.runBuckCommand("test", "//:test-success-internal");
     result1.assertSuccess();
   }
 
   @Test
-  public void testWithResources() throws IOException {
+  public void testWithResources() {
     ProcessResult result1 = workspace.runBuckCommand("test", "//:test-with-resources");
     result1.assertSuccess();
 
@@ -112,7 +163,9 @@ public class GoTestIntegrationTest {
     result1.assertSuccess();
 
     assertIsRegularCopy(
-        workspace.resolve("buck-out/gen/test-with-resources#test-main/testdata/input"),
+        workspace
+            .getGenPath(BuildTargetFactory.newInstance("//:test-with-resources#test-main"), "%s")
+            .resolve("testdata/input"),
         workspace.resolve("testdata/input"));
   }
 
@@ -127,7 +180,10 @@ public class GoTestIntegrationTest {
     result1.assertSuccess();
 
     assertIsRegularCopy(
-        workspace.resolve("buck-out/gen/test-with-resources-directory#test-main/testdata/input"),
+        workspace
+            .getGenPath(
+                BuildTargetFactory.newInstance("//:test-with-resources-directory#test-main"), "%s")
+            .resolve("testdata/input"),
         workspace.resolve("testdata/input"));
   }
 
@@ -142,8 +198,10 @@ public class GoTestIntegrationTest {
     result1.assertSuccess();
 
     assertIsRegularCopy(
-        workspace.resolve(
-            "buck-out/gen/test-with-resources-2directory#test-main/testdata/level2/input"),
+        workspace
+            .getGenPath(
+                BuildTargetFactory.newInstance("//:test-with-resources-2directory#test-main"), "%s")
+            .resolve("testdata/level2/input"),
         workspace.resolve("testdata/level2/input"));
   }
 
@@ -158,29 +216,37 @@ public class GoTestIntegrationTest {
     result1.assertSuccess();
 
     assertIsRegularCopy(
-        workspace.resolve(
-            "buck-out/gen/test-with-resources-2directory-2resources#test-main/testdata/level2/input"),
+        workspace
+            .getGenPath(
+                BuildTargetFactory.newInstance(
+                    "//:test-with-resources-2directory-2resources#test-main"),
+                "%s")
+            .resolve("testdata/level2/input"),
         workspace.resolve("testdata/level2/input"));
     assertIsRegularCopy(
-        workspace.resolve(
-            "buck-out/gen/test-with-resources-2directory-2resources#test-main/testdata/level2bis/input"),
+        workspace
+            .getGenPath(
+                BuildTargetFactory.newInstance(
+                    "//:test-with-resources-2directory-2resources#test-main"),
+                "%s")
+            .resolve("testdata/level2bis/input"),
         workspace.resolve("testdata/level2bis/input"));
   }
 
   @Test
-  public void testGoInternalTestInTestList() throws IOException {
+  public void testGoInternalTestInTestList() {
     ProcessResult processResult = workspace.runBuckCommand("test", "//:test-success-bad");
     processResult.assertFailure();
   }
 
   @Test
-  public void testGoTestTimeout() throws IOException {
+  public void testGoTestTimeout() {
     ProcessResult result = workspace.runBuckCommand("test", "//:test-spinning");
     result.assertTestFailure("test timed out after 500ms");
   }
 
   @Test
-  public void testGoPanic() throws IOException {
+  public void testGoPanic() {
     ProcessResult result2 = workspace.runBuckCommand("test", "//:test-panic");
     result2.assertTestFailure();
     assertThat(
@@ -194,52 +260,52 @@ public class GoTestIntegrationTest {
   }
 
   @Test
-  public void testSubTests() throws IOException {
+  public void testSubTests() {
     GoAssumptions.assumeGoVersionAtLeast("1.7.0");
     ProcessResult result = workspace.runBuckCommand("test", "//:subtests");
     result.assertSuccess();
   }
 
   @Test
-  public void testIndirectDeps() throws IOException {
+  public void testIndirectDeps() {
     ProcessResult result = workspace.runBuckCommand("test", "//add:test-add13");
     result.assertSuccess();
   }
 
   @Test
-  public void testLibWithCgoDeps() throws IOException {
+  public void testLibWithCgoDeps() {
     GoAssumptions.assumeGoVersionAtLeast("1.10.0");
     ProcessResult result = workspace.runBuckCommand("test", "//cgo/lib:all_tests");
     result.assertSuccess();
   }
 
   @Test
-  public void testGenRuleAsSrc() throws IOException {
+  public void testGenRuleAsSrc() {
     ProcessResult result = workspace.runBuckCommand("test", "//genrule_as_src:test");
     result.assertSuccess();
   }
 
   @Test
-  public void testGenRuleWithLibAsSrc() throws IOException {
+  public void testGenRuleWithLibAsSrc() {
     ProcessResult result = workspace.runBuckCommand("test", "//genrule_wtih_lib_as_src:test");
     result.assertSuccess();
   }
 
   @Test
-  public void testHyphen() throws IOException {
+  public void testHyphen() {
     // This test should pass.
     ProcessResult result = workspace.runBuckCommand("test", "//:test-hyphen");
     result.assertSuccess();
   }
 
   @Test
-  public void testFuncWithPrefixTest() throws IOException {
+  public void testFuncWithPrefixTest() {
     ProcessResult result = workspace.runBuckCommand("test", "//:test-scores");
     result.assertSuccess();
   }
 
   @Test
-  public void testNonprintableCharacterInResult() throws IOException {
+  public void testNonprintableCharacterInResult() {
     ProcessResult result = workspace.runBuckCommand("test", "//testOutput:all_tests");
     assertThat(
         "`buck test` should print out the error message",
@@ -249,9 +315,15 @@ public class GoTestIntegrationTest {
   }
 
   @Test
-  public void testGoTestWithEnv() throws IOException {
+  public void testGoTestWithEnv() {
     ProcessResult result = workspace.runBuckCommand("test", "//:test-with-env");
     result.assertSuccess();
+  }
+
+  @Test
+  public void showOutputOfTestBinary() {
+    Path output = workspace.buildAndReturnOutput("//:test-success");
+    assertTrue(Files.isExecutable(output));
   }
 
   @Test

@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -194,7 +194,7 @@ public class CxxLinkTest {
     // Generate a rule with a path we need to sanitize to a consistent value.
     ImmutableList<Arg> args1 =
         ImmutableList.of(
-            SanitizedArg.create(sanitizer1.sanitize(Optional.empty()), "-Lsomething/foo"));
+            SanitizedArg.create(sanitizer1.sanitizer(Optional.empty()), "-Lsomething/foo"));
 
     RuleKey ruleKey1 =
         ruleKeyFactory.build(
@@ -217,7 +217,7 @@ public class CxxLinkTest {
     // same consistent value as above.
     ImmutableList<Arg> args2 =
         ImmutableList.of(
-            SanitizedArg.create(sanitizer2.sanitize(Optional.empty()), "-Ldifferent/foo"));
+            SanitizedArg.create(sanitizer2.sanitizer(Optional.empty()), "-Ldifferent/foo"));
 
     RuleKey ruleKey2 =
         ruleKeyFactory.build(

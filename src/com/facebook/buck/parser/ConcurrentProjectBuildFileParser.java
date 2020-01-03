@@ -1,17 +1,17 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser;
@@ -21,6 +21,7 @@ import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.util.CloseableWrapper;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
@@ -37,10 +38,9 @@ import javax.annotation.Nullable;
  * <p>This {@link PythonDslProjectBuildFileParser} wrapper creates new instances of delegated parser
  * using a provided factory and adds them to worker pool. If free parser is available at the time a
  * request is made, it is reused, if not then it is recreated. Once parsing request (aka {@link
- * ProjectBuildFileParser#getBuildFileManifest(Path)} is complete, parser is returned to the worker
- * pool. Worker pool of parsers can grow unconditionally so it is really up to the user of this
- * class to manage concurrency level by calling this class' methods appropriate number of times in
- * parallel.
+ * ProjectBuildFileParser#getManifest(Path)} is complete, parser is returned to the worker pool.
+ * Worker pool of parsers can grow unconditionally so it is really up to the user of this class to
+ * manage concurrency level by calling this class' methods appropriate number of times in parallel.
  *
  * <p>Note that {@link ConcurrentProjectBuildFileParser#reportProfile()} and {@link
  * ConcurrentProjectBuildFileParser#close()} are not synchronized with the worker pool and just call
@@ -68,7 +68,9 @@ public class ConcurrentProjectBuildFileParser implements ProjectBuildFileParser 
    * Create new instance of {@link ConcurrentProjectBuildFileParser}
    *
    * @param projectBuildFileParserFactory Factory that will be used for creating new instances of
-   *     {@link ProjectBuildFileParser} on demand
+   *     {@link ProjectBuildFileParser} on demand. In order to make wrapped {@link
+   *     ProjectBuildFileParser} thread-safe this factory should create instances for each
+   *     invocation, not memoize them, otherwise the same object will be used for all threads.
    */
   public ConcurrentProjectBuildFileParser(
       Supplier<ProjectBuildFileParser> projectBuildFileParserFactory) {
@@ -87,10 +89,10 @@ public class ConcurrentProjectBuildFileParser implements ProjectBuildFileParser 
   }
 
   @Override
-  public BuildFileManifest getBuildFileManifest(Path buildFile)
+  public BuildFileManifest getManifest(Path buildFile)
       throws BuildFileParseException, InterruptedException, IOException {
     try (CloseableWrapper<ProjectBuildFileParser> wrapper = getWrapper()) {
-      return wrapper.get().getBuildFileManifest(buildFile);
+      return wrapper.get().getManifest(buildFile);
     }
   }
 
@@ -122,9 +124,25 @@ public class ConcurrentProjectBuildFileParser implements ProjectBuildFileParser 
   @Override
   public void close() throws BuildFileParseException, InterruptedException, IOException {
     // not synchronized, should only be used once parsing is done
+    @Nullable Throwable error = null;
     for (ProjectBuildFileParser parser : parsers) {
-      parser.close();
+      try {
+        parser.close();
+      } catch (Throwable t) {
+        if (error == null) {
+          error = t;
+        } else {
+          error.addSuppressed(t);
+        }
+      }
     }
     parsers.clear();
+
+    if (error != null) {
+      Throwables.propagateIfPossible(error, BuildFileParseException.class);
+      Throwables.propagateIfPossible(error, InterruptedException.class);
+      Throwables.propagateIfPossible(error, IOException.class);
+      throw new RuntimeException(error); // should never happen
+    }
   }
 }

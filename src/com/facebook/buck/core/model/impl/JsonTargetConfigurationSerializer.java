@@ -1,25 +1,30 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.core.model.impl;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.ConfigurationBuildTargets;
+import com.facebook.buck.core.model.ConfigurationForConfigurationTargets;
+import com.facebook.buck.core.model.ImmutableRuleBasedTargetConfiguration;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,8 +41,8 @@ import java.util.function.Function;
 public class JsonTargetConfigurationSerializer implements TargetConfigurationSerializer {
 
   private static final ImmutableMap<String, Boolean>
-      HOST_TARGET_CONFIGURATION_ATTRIBUTES_FOR_SERIALIZATION =
-          ImmutableMap.of("hostPlatform", true);
+      TARGET_CONFIGURATION_FOR_CONFIGURATION_ATTRIBUTES_FOR_SERIALIZATION =
+          ImmutableMap.of("configuration", true);
 
   private final ObjectWriter objectWriter;
   private final ObjectReader objectReader;
@@ -49,8 +54,7 @@ public class JsonTargetConfigurationSerializer implements TargetConfigurationSer
     ObjectMapper objectMapper = ObjectMappers.createWithEmptyBeansPermitted();
     SimpleModule targetConfigurationModule = new SimpleModule();
     targetConfigurationModule.addSerializer(
-        UnconfiguredBuildTargetView.class,
-        new UnconfiguredBuildTargetSimpleSerializer(UnconfiguredBuildTargetView.class));
+        BuildTarget.class, new BuildTargetSimpleSerializer(BuildTarget.class));
     objectMapper.registerModule(targetConfigurationModule);
 
     objectReader = objectMapper.reader();
@@ -60,9 +64,9 @@ public class JsonTargetConfigurationSerializer implements TargetConfigurationSer
   @Override
   public String serialize(TargetConfiguration targetConfiguration) {
     try {
-      if (targetConfiguration instanceof HostTargetConfiguration) {
+      if (targetConfiguration instanceof ConfigurationForConfigurationTargets) {
         return objectWriter.writeValueAsString(
-            HOST_TARGET_CONFIGURATION_ATTRIBUTES_FOR_SERIALIZATION);
+            TARGET_CONFIGURATION_FOR_CONFIGURATION_ATTRIBUTES_FOR_SERIALIZATION);
       } else {
         return objectWriter.writeValueAsString(targetConfiguration);
       }
@@ -81,16 +85,17 @@ public class JsonTargetConfigurationSerializer implements TargetConfigurationSer
       throw new HumanReadableException(e, "Cannot deserialize target configuration %s", rawValue);
     }
     if (node.size() == 0) {
-      return EmptyTargetConfiguration.INSTANCE;
+      return UnconfiguredTargetConfiguration.INSTANCE;
     }
-    if (node.has("hostPlatform")) {
-      return HostTargetConfiguration.INSTANCE;
+    if (node.has("configuration")) {
+      return ConfigurationForConfigurationTargets.INSTANCE;
     }
     JsonNode targetPlatformNode =
         Preconditions.checkNotNull(
             node.get("targetPlatform"), "Cannot find targetPlatform in %s", rawValue);
-    UnconfiguredBuildTargetView platform =
-        buildTargetProvider.apply(targetPlatformNode.textValue());
-    return ImmutableDefaultTargetConfiguration.of(platform);
+    BuildTarget platform =
+        ConfigurationBuildTargets.convert(
+            buildTargetProvider.apply(targetPlatformNode.textValue()));
+    return ImmutableRuleBasedTargetConfiguration.of(platform);
   }
 }

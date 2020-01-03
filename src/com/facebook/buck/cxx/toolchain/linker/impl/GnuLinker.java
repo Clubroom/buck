@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx.toolchain.linker.impl;
@@ -27,14 +27,15 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.DelegatingTool;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.cxx.toolchain.linker.HasIncrementalThinLTO;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.FileScrubber;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -56,7 +57,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /** A specialization of {@link Linker} containing information specific to the GNU implementation. */
-public class GnuLinker extends DelegatingTool implements Linker {
+public class GnuLinker extends DelegatingTool implements Linker, HasIncrementalThinLTO {
   public GnuLinker(Tool tool) {
     super(tool);
   }
@@ -67,9 +68,20 @@ public class GnuLinker extends DelegatingTool implements Linker {
   }
 
   @Override
-  public Iterable<Arg> linkWhole(Arg input, SourcePathResolver resolver) {
+  public Iterable<Arg> linkWhole(Arg input, SourcePathResolverAdapter resolver) {
     return ImmutableList.of(
         StringArg.of("-Wl,--whole-archive"), input, StringArg.of("-Wl,--no-whole-archive"));
+  }
+
+  @Override
+  public Iterable<Arg> incrementalThinLTOFlags(Path output) {
+    return StringArg.from(
+        "-Wl,-plugin-opt,thinlto-index-only=thinlto.objects",
+        "-Wl,-plugin-opt,thinlto-emit-imports-files",
+        "-Xlinker",
+        "-plugin-opt",
+        "-Xlinker",
+        "thinlto-prefix-replace=;" + output.toString());
   }
 
   @Override
@@ -151,7 +163,7 @@ public class GnuLinker extends DelegatingTool implements Linker {
 
   @Override
   public Iterable<String> outputArgs(String path) {
-    return ImmutableList.of("-o", MorePaths.pathWithUnixSeparators(path));
+    return ImmutableList.of("-o", PathFormatter.pathWithUnixSeparators(path));
   }
 
   @Override

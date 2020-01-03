@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -23,9 +23,10 @@ import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.step.ImmutableStepExecutionResult;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -69,7 +70,7 @@ public class MergeAndroidResourcesStep implements Step {
   private static final Logger LOG = Logger.get(MergeAndroidResourcesStep.class);
 
   private final ProjectFilesystem filesystem;
-  private final SourcePathResolver pathResolver;
+  private final SourcePathResolverAdapter pathResolver;
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
   private final ImmutableList<Path> uberRDotTxt;
   private final Path outputDir;
@@ -91,7 +92,7 @@ public class MergeAndroidResourcesStep implements Step {
   @VisibleForTesting
   MergeAndroidResourcesStep(
       ProjectFilesystem filesystem,
-      SourcePathResolver pathResolver,
+      SourcePathResolverAdapter pathResolver,
       List<HasAndroidResourceDeps> androidResourceDeps,
       ImmutableList<Path> uberRDotTxt,
       Path outputDir,
@@ -120,7 +121,7 @@ public class MergeAndroidResourcesStep implements Step {
 
   public static MergeAndroidResourcesStep createStepForDummyRDotJava(
       ProjectFilesystem filesystem,
-      SourcePathResolver pathResolver,
+      SourcePathResolverAdapter pathResolver,
       List<HasAndroidResourceDeps> androidResourceDeps,
       Path outputDir,
       boolean forceFinalResourceIds,
@@ -146,7 +147,7 @@ public class MergeAndroidResourcesStep implements Step {
 
   public static MergeAndroidResourcesStep createStepForUberRDotJava(
       ProjectFilesystem filesystem,
-      SourcePathResolver pathResolver,
+      SourcePathResolverAdapter pathResolver,
       List<HasAndroidResourceDeps> androidResourceDeps,
       ImmutableList<Path> uberRDotTxt,
       Path outputDir,
@@ -291,7 +292,10 @@ public class MergeAndroidResourcesStep implements Step {
       }
       return StepExecutionResults.SUCCESS;
     } catch (DuplicateResourceException e) {
-      return StepExecutionResult.of(1, Optional.of(e.getMessage()));
+      return ImmutableStepExecutionResult.builder()
+          .setExitCode(StepExecutionResults.ERROR_EXIT_CODE)
+          .setStderr(Optional.of(e.getMessage()))
+          .build();
     }
   }
 

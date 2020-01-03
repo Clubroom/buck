@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple.toolchain.impl;
@@ -57,9 +57,10 @@ import com.facebook.buck.cxx.toolchain.linker.impl.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.impl.Linkers;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
+import com.facebook.buck.swift.toolchain.SwiftTargetTriple;
 import com.facebook.buck.swift.toolchain.impl.SwiftPlatformFactory;
-import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableBiMap;
@@ -268,6 +269,9 @@ public class AppleCxxPlatforms {
     Tool ibtool =
         getXcodeTool(filesystem, toolSearchPaths, xcodeToolFinder, appleConfig, "ibtool", version);
 
+    Tool libtool =
+        getXcodeTool(filesystem, toolSearchPaths, xcodeToolFinder, appleConfig, "libtool", version);
+
     Tool momc =
         getXcodeTool(filesystem, toolSearchPaths, xcodeToolFinder, appleConfig, "momc", version);
 
@@ -440,7 +444,7 @@ public class AppleCxxPlatforms {
             ArchiverProvider.from(new BsdArchiver(ar)),
             ArchiveContents.NORMAL,
             Optional.of(new ConstantToolProvider(ranlib)),
-            new PosixNmSymbolNameTool(nm),
+            new PosixNmSymbolNameTool(new ConstantToolProvider(nm)),
             cflagsBuilder.build(),
             ImmutableList.of(),
             cflags,
@@ -451,6 +455,7 @@ public class AppleCxxPlatforms {
             "%s.dylib",
             "a",
             "o",
+            Optional.empty(),
             compilerDebugPathSanitizer,
             macros,
             Optional.empty(),
@@ -464,13 +469,16 @@ public class AppleCxxPlatforms {
     AppleSdkPaths.Builder swiftSdkPathsBuilder = AppleSdkPaths.builder().from(sdkPaths);
     Optional<SwiftPlatform> swiftPlatform =
         getSwiftPlatform(
-            applePlatform.getName(),
-            targetArchitecture
-                + "-apple-"
-                + applePlatform.getSwiftName().orElse(applePlatform.getName())
-                + minVersion,
+            SwiftTargetTriple.builder()
+                .setArchitecture(targetArchitecture)
+                .setVendor("apple")
+                .setPlatformName(applePlatform.getSwiftName().orElse(applePlatform.getName()))
+                .setTargetSdkVersion(minVersion)
+                .build(),
             version,
+            targetSdk,
             swiftSdkPathsBuilder.build(),
+            appleConfig.shouldLinkSystemSwift(),
             swiftOverrideSearchPathBuilder.addAll(toolSearchPaths).build(),
             xcodeToolFinder,
             filesystem);
@@ -483,6 +491,7 @@ public class AppleCxxPlatforms {
         .setMinVersion(minVersion)
         .setBuildVersion(buildVersion)
         .setActool(actool)
+        .setLibtool(libtool)
         .setIbtool(ibtool)
         .setMomc(momc)
         .setCopySceneKitAssets(
@@ -502,21 +511,18 @@ public class AppleCxxPlatforms {
   }
 
   private static Optional<SwiftPlatform> getSwiftPlatform(
-      String platformName,
-      String targetArchitectureName,
+      SwiftTargetTriple swiftTarget,
       String version,
+      AppleSdk sdk,
       AppleSdkPaths sdkPaths,
+      boolean shouldLinkSystemSwift,
       ImmutableList<Path> toolSearchPaths,
       XcodeToolFinder xcodeToolFinder,
       ProjectFilesystem filesystem) {
     ImmutableList<String> swiftParams =
-        ImmutableList.of(
-            "-frontend",
-            "-sdk",
-            sdkPaths.getSdkPath().toString(),
-            "-target",
-            targetArchitectureName);
+        ImmutableList.of("-frontend", "-sdk", sdkPaths.getSdkPath().toString());
 
+    String platformName = sdk.getApplePlatform().getName();
     ImmutableList.Builder<String> swiftStdlibToolParamsBuilder = ImmutableList.builder();
     swiftStdlibToolParamsBuilder
         .add("--copy")
@@ -526,6 +532,7 @@ public class AppleCxxPlatforms {
         .add(platformName);
     for (Path toolchainPath : sdkPaths.getToolchainPaths()) {
       swiftStdlibToolParamsBuilder.add("--toolchain").add(toolchainPath.toString());
+      applySourceLibrariesParamIfNeeded(swiftStdlibToolParamsBuilder, toolchainPath, platformName);
     }
 
     Optional<Tool> swiftc =
@@ -543,7 +550,24 @@ public class AppleCxxPlatforms {
     return swiftc.map(
         tool ->
             SwiftPlatformFactory.build(
-                platformName, sdkPaths.getToolchainPaths(), tool, swiftStdLibTool));
+                sdk, sdkPaths, tool, swiftStdLibTool, shouldLinkSystemSwift, swiftTarget));
+  }
+
+  private static void applySourceLibrariesParamIfNeeded(
+      ImmutableList.Builder<String> swiftStdlibToolParamsBuilder,
+      Path toolchainPath,
+      String platformName) {
+    Optional<Path> foundSwiftRuntimePath =
+        SwiftPlatformFactory.findSwiftRuntimePath(toolchainPath, platformName);
+    if (foundSwiftRuntimePath.isPresent()) {
+      swiftStdlibToolParamsBuilder
+          .add("--source-libraries")
+          .add(foundSwiftRuntimePath.get().toString());
+    } else {
+      if (platformName != "driverkit") {
+        LOG.info("Swift stdlib missing from: %s for platform: %s", toolchainPath, platformName);
+      }
+    }
   }
 
   private static Optional<Tool> getOptionalTool(

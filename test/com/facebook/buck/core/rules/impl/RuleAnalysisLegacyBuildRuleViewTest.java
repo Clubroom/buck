@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.core.rules.impl;
 
 import static org.junit.Assert.assertEquals;
@@ -20,34 +21,34 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.artifact.Artifact;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildPaths;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.actions.ActionAnalysisData;
-import com.facebook.buck.core.rules.actions.ActionAnalysisData.ID;
 import com.facebook.buck.core.rules.actions.ActionCreationException;
-import com.facebook.buck.core.rules.actions.ActionExecutionContext;
-import com.facebook.buck.core.rules.actions.ActionExecutionResult;
+import com.facebook.buck.core.rules.actions.ActionRegistry;
 import com.facebook.buck.core.rules.actions.ActionWrapperData;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory.DeclaredArtifact;
-import com.facebook.buck.core.rules.actions.Artifact;
-import com.facebook.buck.core.rules.actions.Artifact.BuildArtifact;
+import com.facebook.buck.core.rules.actions.DefaultActionRegistry;
 import com.facebook.buck.core.rules.actions.FakeAction;
 import com.facebook.buck.core.rules.actions.FakeActionAnalysisRegistry;
 import com.facebook.buck.core.rules.actions.ImmutableActionExecutionSuccess;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisResult;
+import com.facebook.buck.core.rules.analysis.action.ActionAnalysisData;
+import com.facebook.buck.core.rules.analysis.action.ActionAnalysisData.ID;
 import com.facebook.buck.core.rules.analysis.impl.FakeBuiltInProvider;
 import com.facebook.buck.core.rules.analysis.impl.FakeInfo;
 import com.facebook.buck.core.rules.analysis.impl.ImmutableFakeRuleAnalysisResultImpl;
-import com.facebook.buck.core.rules.providers.ProviderInfoCollection;
-import com.facebook.buck.core.rules.providers.impl.ProviderInfoCollectionImpl;
+import com.facebook.buck.core.rules.config.registry.ConfigurationRuleRegistry;
+import com.facebook.buck.core.rules.providers.collect.ProviderInfoCollection;
+import com.facebook.buck.core.rules.providers.collect.impl.TestProviderInfoCollectionImpl;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -57,22 +58,23 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.util.function.TriFunction;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class RuleAnalysisLegacyBuildRuleViewTest {
+
+  private ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
   @Test
   public void buildRuleViewReturnsCorrectInformation()
@@ -92,11 +94,13 @@ public class RuleAnalysisLegacyBuildRuleViewTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T> BuildRule transform(
+              public <T extends BuildRuleArg> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
+                  ConfigurationRuleRegistry configurationRuleRegistry,
                   ActionGraphBuilder graphBuilder,
-                  TargetNode<T> targetNode) {
+                  TargetNode<T> targetNode,
+                  ProviderInfoCollection providerInfoCollection) {
                 assertSame(depNode, targetNode);
                 return fakeDepRule;
               }
@@ -104,57 +108,56 @@ public class RuleAnalysisLegacyBuildRuleViewTest {
     actionGraphBuilder.requireRule(depTarget);
 
     FakeActionAnalysisRegistry actionAnalysisRegistry = new FakeActionAnalysisRegistry();
-    ActionWrapperDataFactory actionWrapperDataFactory =
-        new ActionWrapperDataFactory(actionAnalysisRegistry);
-    TriFunction<
-            ImmutableSet<Artifact>,
-            ImmutableSet<BuildArtifact>,
-            ActionExecutionContext,
-            ActionExecutionResult>
-        depActionFunction =
-            (ins, outs, ctx) ->
-                ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
 
-    DeclaredArtifact depArtifact =
-        actionWrapperDataFactory.declareArtifact(Paths.get("bar.output"));
-    ImmutableMap<DeclaredArtifact, BuildArtifact> materializedDepArtifacts =
-        actionWrapperDataFactory.createActionAnalysisData(
-            FakeAction.class,
-            depTarget,
-            ImmutableSet.of(),
-            ImmutableSet.of(depArtifact),
-            depActionFunction);
+    FakeAction.FakeActionExecuteLambda depActionFunction =
+        (srcs, ins, outs, ctx) ->
+            ImmutableActionExecutionSuccess.of(
+                Optional.empty(), Optional.empty(), ImmutableList.of());
+
+    ActionRegistry actionRegistry =
+        new DefaultActionRegistry(depTarget, actionAnalysisRegistry, filesystem);
+    Artifact depArtifact = actionRegistry.declareArtifact(Paths.get("bar.output"));
+
+    new FakeAction(
+        actionRegistry,
+        ImmutableSortedSet.of(),
+        ImmutableSortedSet.of(),
+        ImmutableSortedSet.of(depArtifact),
+        depActionFunction);
 
     Path outpath = Paths.get("foo.output");
-    AtomicBoolean functionCalled = new AtomicBoolean();
-    TriFunction<
-            ImmutableSet<Artifact>,
-            ImmutableSet<BuildArtifact>,
-            ActionExecutionContext,
-            ActionExecutionResult>
-        actionFunction =
-            (ins, outs, ctx) -> {
-              assertEquals(ImmutableSet.of(materializedDepArtifacts.get(depArtifact)), ins);
-              assertEquals(
-                  buildTarget, Iterables.getOnlyElement(outs).getActionDataKey().getBuildTarget());
-              assertEquals(buildTarget, Iterables.getOnlyElement(outs).getPath().getTarget());
-              assertEquals(outpath, Iterables.getOnlyElement(outs).getPath().getResolvedPath());
-              functionCalled.set(true);
-              return ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
-            };
+    Path packagePath = BuildPaths.getGenDir(filesystem, buildTarget);
 
-    DeclaredArtifact artifact = actionWrapperDataFactory.declareArtifact(outpath);
-    ImmutableMap<DeclaredArtifact, BuildArtifact> materializedArtifacts =
-        actionWrapperDataFactory.createActionAnalysisData(
-            FakeAction.class,
-            buildTarget,
-            ImmutableSet.of(materializedDepArtifacts.get(depArtifact)),
-            ImmutableSet.of(artifact),
-            actionFunction);
+    AtomicBoolean functionCalled = new AtomicBoolean();
+    FakeAction.FakeActionExecuteLambda actionFunction =
+        (srcs, ins, outs, ctx) -> {
+          assertEquals(ImmutableSortedSet.of(depArtifact), ins);
+          assertEquals(
+              buildTarget,
+              Objects.requireNonNull(Iterables.getOnlyElement(outs).asBound().asBuildArtifact())
+                  .getActionDataKey()
+                  .getBuildTarget());
+          assertEquals(
+              ExplicitBuildTargetSourcePath.of(buildTarget, packagePath.resolve(outpath)),
+              Iterables.getOnlyElement(outs).asBound().getSourcePath());
+          functionCalled.set(true);
+          return ImmutableActionExecutionSuccess.of(
+              Optional.empty(), Optional.empty(), ImmutableList.of());
+        };
+
+    actionRegistry = new DefaultActionRegistry(buildTarget, actionAnalysisRegistry, filesystem);
+    Artifact artifact = actionRegistry.declareArtifact(outpath);
+
+    new FakeAction(
+        actionRegistry,
+        ImmutableSortedSet.of(),
+        ImmutableSortedSet.of(depArtifact),
+        ImmutableSortedSet.of(artifact),
+        actionFunction);
 
     ProviderInfoCollection providerInfoCollection =
-        ProviderInfoCollectionImpl.builder()
-            .put(new FakeInfo(new FakeBuiltInProvider("foo", FakeInfo.class)))
+        TestProviderInfoCollectionImpl.builder()
+            .put(new FakeInfo(new FakeBuiltInProvider("foo")))
             .build();
 
     Map<ID, ActionAnalysisData> actionAnalysisDataMap =
@@ -169,28 +172,34 @@ public class RuleAnalysisLegacyBuildRuleViewTest {
     ActionWrapperData actionWrapperData =
         (ActionWrapperData)
             actionAnalysisDataMap.get(
-                materializedArtifacts.get(artifact).getActionDataKey().getID());
+                Objects.requireNonNull(artifact.asBound().asBuildArtifact())
+                    .getActionDataKey()
+                    .getID());
 
-    BuildRule buildRule =
+    RuleAnalysisLegacyBuildRuleView buildRule =
         new RuleAnalysisLegacyBuildRuleView(
             "my_type",
             ruleAnalysisResult.getBuildTarget(),
-            actionWrapperData.getAction(),
+            Optional.of(actionWrapperData.getAction()),
             actionGraphBuilder,
-            projectFilesystem);
+            projectFilesystem,
+            providerInfoCollection);
 
     assertSame(buildTarget, buildRule.getBuildTarget());
     assertSame(projectFilesystem, buildRule.getProjectFilesystem());
+    assertSame(providerInfoCollection, buildRule.getProviderInfos());
     assertEquals("my_type", buildRule.getType());
     assertEquals(
-        ExplicitBuildTargetSourcePath.of(buildTarget, Paths.get("foo.output")),
+        ExplicitBuildTargetSourcePath.of(buildTarget, packagePath.resolve("foo.output")),
         buildRule.getSourcePathToOutput());
 
     assertEquals(ImmutableSortedSet.of(fakeDepRule), buildRule.getBuildDeps());
     FakeBuildableContext buildableContext = new FakeBuildableContext();
     ImmutableList<? extends Step> steps =
         buildRule.getBuildSteps(FakeBuildContext.NOOP_CONTEXT, buildableContext);
-    assertEquals(ImmutableSet.of(Paths.get("foo.output")), buildableContext.getRecordedArtifacts());
+    assertEquals(
+        ImmutableSortedSet.of(packagePath.resolve("foo.output")),
+        buildableContext.getRecordedArtifacts());
     assertThat(steps, Matchers.hasSize(1));
 
     Step step = Iterables.getOnlyElement(steps);

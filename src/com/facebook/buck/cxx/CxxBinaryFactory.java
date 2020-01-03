@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -20,6 +20,8 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -57,6 +59,7 @@ public class CxxBinaryFactory {
 
   @SuppressWarnings("PMD.PrematureDeclaration")
   public BuildRule createBuildRule(
+      TargetGraph targetGraph,
       BuildTarget target,
       ProjectFilesystem projectFilesystem,
       ActionGraphBuilder graphBuilder,
@@ -71,7 +74,8 @@ public class CxxBinaryFactory {
     target = CxxStrip.removeStripStyleFlavorInTarget(target, flavoredStripStyle);
     target = LinkerMapMode.removeLinkerMapModeFlavorInTarget(target, flavoredLinkerMapMode);
 
-    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
+    CxxPlatformsProvider cxxPlatformsProvider =
+        getCxxPlatformsProvider(target.getTargetConfiguration());
 
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
@@ -91,6 +95,7 @@ public class CxxBinaryFactory {
     if (flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       CxxLinkAndCompileRules cxxLinkAndCompileRules =
           CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+              targetGraph,
               target.withoutFlavors(CxxCompilationDatabase.COMPILATION_DATABASE),
               projectFilesystem,
               graphBuilder,
@@ -130,30 +135,31 @@ public class CxxBinaryFactory {
           inferBuckConfig);
     }
 
-    if (flavors.contains(CxxDescriptionEnhancer.INCREMENTAL_THINLTO)) {
-      return CxxDescriptionEnhancer.createBuildRuleForCxxThinLtoBinary(
-          target,
-          projectFilesystem,
-          graphBuilder,
-          cellRoots,
-          cxxBuckConfig,
-          cxxPlatform,
-          args,
-          extraCxxDeps);
-    }
-
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
-        CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
-            target,
-            projectFilesystem,
-            graphBuilder,
-            cellRoots,
-            cxxBuckConfig,
-            cxxPlatform,
-            args,
-            extraCxxDeps,
-            flavoredStripStyle,
-            flavoredLinkerMapMode);
+        flavors.contains(CxxDescriptionEnhancer.INCREMENTAL_THINLTO)
+            ? CxxDescriptionEnhancer.createBuildRuleForCxxThinLtoBinary(
+                target,
+                projectFilesystem,
+                graphBuilder,
+                cellRoots,
+                cxxBuckConfig,
+                cxxPlatform,
+                args,
+                extraCxxDeps,
+                flavoredStripStyle,
+                flavoredLinkerMapMode)
+            : CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+                targetGraph,
+                target,
+                projectFilesystem,
+                graphBuilder,
+                cellRoots,
+                cxxBuckConfig,
+                cxxPlatform,
+                args,
+                extraCxxDeps,
+                flavoredStripStyle,
+                flavoredLinkerMapMode);
 
     if (target.getFlavors().contains(CxxDescriptionEnhancer.CXX_LINK_MAP_FLAVOR)) {
       return CxxDescriptionEnhancer.createLinkMap(
@@ -192,9 +198,12 @@ public class CxxBinaryFactory {
         cxxBuckConfig.shouldCacheBinaries());
   }
 
-  private CxxPlatformsProvider getCxxPlatformsProvider() {
+  private CxxPlatformsProvider getCxxPlatformsProvider(
+      TargetConfiguration toolchainTargetConfiguration) {
     return toolchainProvider.getByName(
-        CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
+        CxxPlatformsProvider.DEFAULT_NAME,
+        toolchainTargetConfiguration,
+        CxxPlatformsProvider.class);
   }
 
   /** @return a {@link HeaderSymlinkTree} for the headers of this C/C++ binary. */
@@ -210,7 +219,7 @@ public class CxxBinaryFactory {
         graphBuilder,
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
-            buildTarget, graphBuilder, Optional.of(cxxPlatform), args),
+            buildTarget, graphBuilder, projectFilesystem, Optional.of(cxxPlatform), args),
         HeaderVisibility.PRIVATE,
         true);
   }

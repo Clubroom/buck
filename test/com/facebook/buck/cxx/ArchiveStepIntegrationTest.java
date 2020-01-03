@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -22,14 +22,13 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.config.FakeBuckConfig;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.Archiver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileCommonModificationDate;
 import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileScrubbers;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -37,6 +36,7 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.ObjectFileCommonModificationDate;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -68,18 +68,21 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    Archiver archiver = platform.getAr().resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE);
+    Archiver archiver =
+        platform.getAr().resolve(ruleResolver, UnconfiguredTargetConfiguration.INSTANCE);
     Path output = filesystem.getPath("output.a");
     Path input = filesystem.getPath("input.dat");
     filesystem.writeContentsToPath("blah", input);
     Preconditions.checkState(filesystem.resolve(input).toFile().setExecutable(true));
+    ImmutableList<String> archiverCmd =
+        archiver.getCommandPrefix(ruleResolver.getSourcePathResolver());
 
     // Build an archive step.
     ArchiveStep archiveStep =
         new ArchiveStep(
             filesystem,
             archiver.getEnvironment(ruleResolver.getSourcePathResolver()),
-            archiver.getCommandPrefix(ruleResolver.getSourcePathResolver()),
+            archiverCmd,
             ImmutableList.of(),
             getArchiveOptions(false),
             output,
@@ -108,17 +111,27 @@ public class ArchiveStepIntegrationTest {
       assertEquals(0, entry.getGroupId());
       assertEquals(String.format("0%o", entry.getMode()), 0100644, entry.getMode());
     }
+
+    // test the beginning of description to make sure it matches the archive command
+    String desc = archiveStep.getDescription(executionContext);
+    assertThat(desc, Matchers.startsWith(archiverCmd.get(0)));
   }
 
   @Test
   public void emptyArchives() throws IOException, InterruptedException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     CxxPlatform platform =
-        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
+        CxxPlatformUtils.build(
+            new CxxBuckConfig(
+                FakeBuckConfig.builder()
+                    .setFilesystem(filesystem)
+                    .setSections(CxxToolchainUtilsForTests.configureCxxToolchainsAndGetConfig())
+                    .build()));
 
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    Archiver archiver = platform.getAr().resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE);
+    Archiver archiver =
+        platform.getAr().resolve(ruleResolver, UnconfiguredTargetConfiguration.INSTANCE);
     Path output = filesystem.getPath("output.a");
 
     // Build an archive step.
@@ -157,7 +170,8 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    Archiver archiver = platform.getAr().resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE);
+    Archiver archiver =
+        platform.getAr().resolve(ruleResolver, UnconfiguredTargetConfiguration.INSTANCE);
     Path output = filesystem.getPath("output.a");
     Path input = filesystem.getPath("foo/blah.dat");
     filesystem.mkdirs(input.getParent());
@@ -200,7 +214,8 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    Archiver archiver = platform.getAr().resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE);
+    Archiver archiver =
+        platform.getAr().resolve(ruleResolver, UnconfiguredTargetConfiguration.INSTANCE);
 
     assumeTrue(archiver.supportsThinArchives());
 

@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.toolchain.ndk.impl;
@@ -440,12 +440,12 @@ public class AndroidNdkResolverTest {
     Path expectedPath =
         createTmpNdkVersions(
             NDK_POST_R11_VERSION_FILENAME,
-            "ndk-dir-r18b",
-            "Pkg.Desc = Android NDK\nPkg.Revision = 18.1.5063045",
             "ndk-dir-r19b",
             "Pkg.Desc = Android NDK\nPkg.Revision = 19.1.5304403",
-            "ndk-dir-r20-beta1",
-            "Pkg.Desc = Android NDK\nPkg.Revision = 20.0.5344622-beta1")[1];
+            "ndk-dir-r20",
+            "Pkg.Desc = Android NDK\nPkg.Revision = 20.0.5594570",
+            "ndk-dir-r21-xxx",
+            "Pkg.Desc = Android NDK\nPkg.Revision = 21.0.5000000")[1];
     AndroidNdkResolver resolver =
         new AndroidNdkResolver(
             tmpDir.getRoot().getFileSystem(),

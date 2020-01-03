@@ -1,28 +1,33 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.rules.platform;
 
-import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.description.arg.Hint;
+import com.facebook.buck.core.exceptions.DependencyStack;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.ConfigurationBuildTargets;
 import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.platform.ConstraintValueUtil;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
+import com.facebook.buck.core.rules.config.ConfigurationRuleArg;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
 import com.facebook.buck.core.rules.config.ConfigurationRuleResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
@@ -43,7 +48,8 @@ import org.immutables.value.Value;
  *   )
  * </pre>
  */
-public class PlatformDescription implements ConfigurationRuleDescription<PlatformArg> {
+public class PlatformDescription
+    implements ConfigurationRuleDescription<PlatformArg, PlatformRule> {
 
   @Override
   public Class<PlatformArg> getConstructorArgType() {
@@ -51,22 +57,59 @@ public class PlatformDescription implements ConfigurationRuleDescription<Platfor
   }
 
   @Override
-  public ConfigurationRule createConfigurationRule(
+  public Class<PlatformRule> getRuleClass() {
+    return PlatformRule.class;
+  }
+
+  @Override
+  public PlatformRule createConfigurationRule(
       ConfigurationRuleResolver configurationRuleResolver,
-      Cell cell,
-      UnconfiguredBuildTargetView buildTarget,
+      BuildTarget buildTarget,
+      DependencyStack dependencyStack,
       PlatformArg arg) {
-    return PlatformRule.of(buildTarget, arg.getName(), arg.getConstraintValues(), arg.getDeps());
+
+    ImmutableSet<ConstraintValueRule> constraintValueRules =
+        arg.getConstraintValues().stream()
+            .map(
+                constraintValue ->
+                    configurationRuleResolver.getRule(
+                        ConfigurationBuildTargets.convert(constraintValue),
+                        ConstraintValueRule.class,
+                        dependencyStack.child(constraintValue)))
+            .collect(ImmutableSet.toImmutableSet());
+
+    ConstraintValueUtil.validateUniqueConstraintSettings(
+        "platform",
+        buildTarget,
+        dependencyStack,
+        constraintValueRules.stream()
+            .map(ConstraintValueRule::getConstraintValue)
+            .collect(ImmutableSet.toImmutableSet()));
+
+    return PlatformRule.of(
+        buildTarget,
+        arg.getName(),
+        constraintValueRules,
+        ConfigurationBuildTargets.convert(arg.getDeps()));
+  }
+
+  @Override
+  public ImmutableSet<BuildTarget> getConfigurationDeps(PlatformArg arg) {
+    return ImmutableSet.<BuildTarget>builder()
+        .addAll(ConfigurationBuildTargets.convert(arg.getConstraintValues()))
+        .addAll(ConfigurationBuildTargets.convert(arg.getDeps()))
+        .build();
   }
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractPlatformArg {
-    String getName();
-
-    ImmutableList<UnconfiguredBuildTargetView> getConstraintValues();
+  interface AbstractPlatformArg extends ConfigurationRuleArg {
+    @Value.NaturalOrder
+    @Hint(isConfigurable = false)
+    ImmutableSortedSet<UnconfiguredBuildTargetView> getConstraintValues();
 
     @Value.NaturalOrder
+    @Hint(isConfigurable = false)
     ImmutableSortedSet<UnconfiguredBuildTargetView> getDeps();
   }
 
@@ -76,16 +119,16 @@ public class PlatformDescription implements ConfigurationRuleDescription<Platfor
   interface AbstractPlatformRule extends ConfigurationRule {
     @Value.Parameter
     @Override
-    UnconfiguredBuildTargetView getBuildTarget();
+    BuildTarget getBuildTarget();
 
     @Value.Parameter
     String getName();
 
     @Value.Parameter
-    ImmutableList<UnconfiguredBuildTargetView> getConstrainValues();
+    ImmutableSet<ConstraintValueRule> getConstrainValuesRules();
 
     @Value.Parameter
     @Value.NaturalOrder
-    ImmutableSortedSet<UnconfiguredBuildTargetView> getDeps();
+    ImmutableSortedSet<BuildTarget> getDeps();
   }
 }

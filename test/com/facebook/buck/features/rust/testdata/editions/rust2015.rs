@@ -1,11 +1,13 @@
 extern crate common;
 
 pub fn do_thing() {
-  inner::innerdo();
+    inner::innerdo();
 }
 
 mod inner {
-  pub fn innerdo() {
-    common::common();
-  }
+    use common::common_func;
+
+    pub fn innerdo() {
+        common_func();
+    }
 }

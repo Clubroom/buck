@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
@@ -22,8 +22,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ConsoleEvent;
@@ -91,7 +90,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       throw new CommandLineException("must specify at least one build target");
     }
 
-    TargetGraph targetGraph;
+    TargetGraphCreationResult targetGraph;
     try (CommandThreadManager pool =
         new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()))) {
       targetGraph =
@@ -113,9 +112,9 @@ public class AuditClasspathCommand extends AbstractCommand {
       if (shouldGenerateDotOutput()) {
         return printDotOutput(params, targetGraph);
       } else if (shouldGenerateJsonOutput()) {
-        return printJsonClasspath(params, targetGraph, targets);
+        return printJsonClasspath(params, targetGraph);
       } else {
-        return printClasspath(params, targetGraph, targets);
+        return printClasspath(params, targetGraph);
       }
     } catch (VersionException e) {
       throw new HumanReadableException(e, MoreExceptions.getHumanReadableOrLocalizedMessage(e));
@@ -128,9 +127,9 @@ public class AuditClasspathCommand extends AbstractCommand {
   }
 
   @VisibleForTesting
-  ExitCode printDotOutput(CommandRunnerParams params, TargetGraph targetGraph) {
+  ExitCode printDotOutput(CommandRunnerParams params, TargetGraphCreationResult targetGraph) {
     try {
-      Dot.builder(targetGraph, "target_graph")
+      Dot.builder(targetGraph.getTargetGraph(), "target_graph")
           .setNodeToName(
               targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"")
           .setNodeToTypeName(targetNode -> targetNode.getRuleType().getName())
@@ -144,13 +143,11 @@ public class AuditClasspathCommand extends AbstractCommand {
 
   @VisibleForTesting
   ExitCode printClasspath(
-      CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
+      CommandRunnerParams params, TargetGraphCreationResult targetGraphCreationResult)
       throws InterruptedException, VersionException {
 
     if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-      targetGraph =
-          toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
-              .getTargetGraph();
+      targetGraphCreationResult = toVersionedTargetGraph(params, targetGraphCreationResult);
     }
 
     ActionGraphBuilder graphBuilder =
@@ -161,6 +158,7 @@ public class AuditClasspathCommand extends AbstractCommand {
                             params.getBuckEventBus(),
                             params.getCell().getCellProvider(),
                             params.getExecutors(),
+                            params.getDepsAwareExecutorSupplier(),
                             params.getBuckConfig()),
                         new ActionGraphCache(
                             params
@@ -169,11 +167,11 @@ public class AuditClasspathCommand extends AbstractCommand {
                                 .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
-                    .getFreshActionGraph(targetGraph))
+                    .getFreshActionGraph(targetGraphCreationResult))
             .getActionGraphBuilder();
     SortedSet<Path> classpathEntries = new TreeSet<>();
 
-    for (BuildTarget target : targets) {
+    for (BuildTarget target : targetGraphCreationResult.getBuildTargets()) {
       BuildRule rule = Objects.requireNonNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries != null) {
@@ -196,13 +194,11 @@ public class AuditClasspathCommand extends AbstractCommand {
 
   @VisibleForTesting
   ExitCode printJsonClasspath(
-      CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
+      CommandRunnerParams params, TargetGraphCreationResult targetGraphCreationResult)
       throws IOException, InterruptedException, VersionException {
 
     if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-      targetGraph =
-          toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
-              .getTargetGraph();
+      targetGraphCreationResult = toVersionedTargetGraph(params, targetGraphCreationResult);
     }
 
     ActionGraphBuilder graphBuilder =
@@ -213,6 +209,7 @@ public class AuditClasspathCommand extends AbstractCommand {
                             params.getBuckEventBus(),
                             params.getCell().getCellProvider(),
                             params.getExecutors(),
+                            params.getDepsAwareExecutorSupplier(),
                             params.getBuckConfig()),
                         new ActionGraphCache(
                             params
@@ -221,11 +218,11 @@ public class AuditClasspathCommand extends AbstractCommand {
                                 .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
-                    .getFreshActionGraph(targetGraph))
+                    .getFreshActionGraph(targetGraphCreationResult))
             .getActionGraphBuilder();
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
-    for (BuildTarget target : targets) {
+    for (BuildTarget target : targetGraphCreationResult.getBuildTargets()) {
       BuildRule rule = Objects.requireNonNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries == null) {

@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.modern.builders;
@@ -19,12 +19,17 @@ package com.facebook.buck.rules.modern.builders;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.engine.BuildStrategyContext;
 import com.facebook.buck.core.build.engine.DelegatingBuildStrategyContext;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.remoteexecution.WorkerRequirementsProvider;
+import com.facebook.buck.remoteexecution.proto.WorkerRequirements;
 import com.facebook.buck.util.Scope;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.base.Verify;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -54,15 +59,28 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
 
   private final BuildRuleStrategy delegate;
 
-  private final ConcurrentLinkedQueue<Job> pendingQueue;
+  // Queue for Jobs that cannot be run on the delegate
+  private final ConcurrentLinkedQueue<Job> pendingLocalQueue;
+  // Queue for Jobs that can be run on the delegate or locally
+  private final ConcurrentLinkedQueue<Job> pendingDelegateOrLocalQueue;
+  // Queue for Jobs that can only be run on delegate
+  private final ConcurrentLinkedQueue<Job> pendingDelegateOnlyQueue;
 
   private final Semaphore localSemaphore;
+  private final Semaphore localDelegateSemaphore;
   private final Semaphore delegateSemaphore;
+  private BuckEventBus eventBus;
 
   private final DelegateJobTracker tracker = new DelegateJobTracker();
 
   private final ListeningExecutorService scheduler =
       MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+
+  private final Optional<WorkerRequirements.WorkerSize> maxWorkerSizeToStealFrom;
+
+  private final WorkerRequirementsProvider workerRequirementsProvider;
+
+  private final String auxiliaryBuildTag;
 
   // If this is non-null, we've hit some unexpected unrecoverable condition.
   @Nullable private volatile Throwable hardFailure;
@@ -75,7 +93,7 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     }
 
     @Nullable
-    ListenableFuture<?> stealFromDelegate() {
+    ListenableFuture<?> stealFromDelegate(BuckEventBus eventBus) {
       while (true) {
         Job job = delegateJobs.pollLast();
         if (job == null) {
@@ -85,6 +103,7 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
           ListenableFuture<?> listenableFuture =
               job.rescheduleLocally(new CancellationException("Job is being stolen."));
           if (listenableFuture != null) {
+            eventBus.post(HybridLocalEvent.createStolen(job.rule.getBuildTarget()));
             return listenableFuture;
           }
         } catch (Exception e) {
@@ -101,11 +120,41 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     }
   }
 
-  public HybridLocalStrategy(int numLocalJobs, int numDelegateJobs, BuildRuleStrategy delegate) {
+  public HybridLocalStrategy(
+      int numLocalJobs,
+      int numLocalDelegateJobs,
+      int numDelegateJobs,
+      BuildRuleStrategy delegate,
+      WorkerRequirementsProvider workerRequirementsProvider,
+      Optional<WorkerRequirements.WorkerSize> maxWorkerSizeToStealFrom,
+      String auxiliaryBuildTag,
+      BuckEventBus eventBus) {
     this.delegate = delegate;
+    this.workerRequirementsProvider = workerRequirementsProvider;
+    this.maxWorkerSizeToStealFrom = maxWorkerSizeToStealFrom;
+    this.auxiliaryBuildTag = auxiliaryBuildTag;
     this.localSemaphore = new Semaphore(numLocalJobs);
+    this.localDelegateSemaphore = new Semaphore(numLocalDelegateJobs);
     this.delegateSemaphore = new Semaphore(numDelegateJobs);
-    this.pendingQueue = new ConcurrentLinkedQueue<>();
+    this.eventBus = eventBus;
+    this.pendingLocalQueue = new ConcurrentLinkedQueue<>();
+    this.pendingDelegateOrLocalQueue = new ConcurrentLinkedQueue<>();
+    this.pendingDelegateOnlyQueue = new ConcurrentLinkedQueue<>();
+  }
+
+  boolean isStealingSupportedForJob(Job job) {
+    // Ensure that we do not steal actions for which require a worker greater than the max
+    // configured limit, as this could lead to OOMs on the local machine.
+    if (!maxWorkerSizeToStealFrom.isPresent()) {
+      return true;
+    }
+
+    WorkerRequirements.WorkerSize workerSizeRequirement =
+        workerRequirementsProvider
+            .resolveRequirements(job.rule.getBuildTarget(), auxiliaryBuildTag)
+            .getWorkerSize();
+
+    return workerSizeRequirement.getNumber() <= maxWorkerSizeToStealFrom.get().getNumber();
   }
 
   private class Job {
@@ -117,12 +166,14 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     // are in the process of) cancelling the delegate.
     @Nullable StrategyBuildResult delegateResult;
     volatile boolean cancelledOnDelegate;
+    final boolean canBuildOnDelegate;
 
-    Job(BuildStrategyContext strategyContext, BuildRule rule) {
+    Job(BuildStrategyContext strategyContext, BuildRule rule, boolean canBuildOnDelegate) {
       this.strategyContext = strategyContext;
       this.rule = rule;
       this.future = SettableFuture.create();
       this.cancelledOnDelegate = false;
+      this.canBuildOnDelegate = canBuildOnDelegate;
     }
 
     // TODO(cjhopman): These schedule functions might not be resilient in the face of exceptions
@@ -131,7 +182,7 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     ListenableFuture<?> scheduleLocally() {
       synchronized (this) {
         if (future.isDone()) {
-          return Futures.immediateFuture(null);
+          return Futures.immediateFuture(Unit.UNIT);
         }
 
         ListenableFuture<Optional<BuildResult>> localFuture =
@@ -143,7 +194,9 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
                         BuildResult.builder()
                             .from(result.get())
                             .setStrategyResult(
-                                "hybrid local" + (cancelledOnDelegate ? " - stolen" : ""))
+                                "hybrid local"
+                                    + (canBuildOnDelegate ? " - delegate" : " - nondelegate")
+                                    + (cancelledOnDelegate ? " - stolen" : ""))
                             .build()),
                 MoreExecutors.directExecutor());
         future.setFuture(localFuture);
@@ -159,7 +212,11 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
         StrategyBuildResult capturedDelegateResult =
             delegate.build(rule, new DelegatingContextWithNoOpRuleScope(strategyContext));
         delegateResult = capturedDelegateResult;
-        tracker.register(this);
+
+        // Only register delegate job if there is a possibility for it to be stolen
+        if (isStealingSupportedForJob(this)) {
+          tracker.register(this);
+        }
 
         ListenableFuture<Optional<BuildResult>> buildResult =
             capturedDelegateResult.getBuildResult();
@@ -256,8 +313,20 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
 
   @Override
   public StrategyBuildResult build(BuildRule rule, BuildStrategyContext strategyContext) {
-    Job job = new Job(strategyContext, rule);
-    pendingQueue.add(job);
+    boolean canBuildOnDelegate = delegate.canBuild(rule);
+    Job job = new Job(strategyContext, rule, canBuildOnDelegate);
+
+    if (canBuildOnDelegate) {
+      if (isStealingSupportedForJob(job)) {
+        pendingDelegateOrLocalQueue.add(job);
+      } else {
+        pendingDelegateOnlyQueue.add(job);
+      }
+
+    } else {
+      pendingLocalQueue.add(job);
+    }
+
     scheduler.submit(this::schedule);
     return new StrategyBuildResult() {
       @Override
@@ -285,19 +354,62 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     }
 
     try {
-      // Try scheduling a local task.
+      // Try scheduling a local task from local or delegate queues.
       semaphoreScopedSchedule(
           localSemaphore,
           () -> {
-            Job job = pendingQueue.poll();
-            return job == null ? tracker.stealFromDelegate() : job.scheduleLocally();
+            Job job = pendingLocalQueue.poll();
+            if (job != null) {
+              return job.scheduleLocally();
+            } else {
+              if (localDelegateSemaphore.tryAcquire()) {
+                job = pendingDelegateOrLocalQueue.poll();
+                ListenableFuture<?> future;
+                if (job != null) {
+                  future = job.scheduleLocally();
+                } else {
+                  future = tracker.stealFromDelegate(eventBus);
+                }
+                if (future != null) {
+                  SettableFuture<Object> semaphoreFuture = SettableFuture.create();
+                  Futures.addCallback(
+                      future,
+                      new FutureCallback<Object>() {
+
+                        @Override
+                        public void onSuccess(@Nullable Object result) {
+                          localDelegateSemaphore.release();
+                          semaphoreFuture.set(result);
+                        }
+
+                        @Override
+                        public void onFailure(Throwable t) {
+                          localDelegateSemaphore.release();
+                          semaphoreFuture.setException(t);
+                        }
+                      },
+                      MoreExecutors.directExecutor());
+
+                  return semaphoreFuture;
+                } else {
+                  localDelegateSemaphore.release();
+                  return null;
+                }
+              }
+              return null;
+            }
           });
 
       // Try scheduling a delegate task.
       semaphoreScopedSchedule(
           delegateSemaphore,
           () -> {
-            Job job = pendingQueue.poll();
+            // Actions that can only run by delegate should be scheduled with priority
+            Job job = pendingDelegateOnlyQueue.poll();
+
+            if (job == null) {
+              job = pendingDelegateOrLocalQueue.poll();
+            }
             return job == null ? null : job.scheduleWithDelegate();
           });
     } catch (Throwable t) {
@@ -308,11 +420,17 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
     }
   }
 
-  private void cancelAllPendingJobs() {
-    while (!pendingQueue.isEmpty()) {
-      // Only the scheduling thread pulls from the queue, so this is safe.
-      Objects.requireNonNull(pendingQueue.poll()).cancel(Objects.requireNonNull(hardFailure));
+  private void cancelAllJobsInQueue(ConcurrentLinkedQueue<Job> jobQueue) {
+    while (!jobQueue.isEmpty()) {
+      Objects.requireNonNull(jobQueue.poll()).cancel(Objects.requireNonNull(hardFailure));
     }
+  }
+
+  private void cancelAllPendingJobs() {
+    // Only the scheduling thread pulls from the queue, so polling from queues is safe.
+    cancelAllJobsInQueue(pendingDelegateOrLocalQueue);
+    cancelAllJobsInQueue(pendingDelegateOnlyQueue);
+    cancelAllJobsInQueue(pendingLocalQueue);
   }
 
   // Attempts to acquire a permit from the semaphore and then tries to schedule the task provided.
@@ -343,7 +461,7 @@ public class HybridLocalStrategy implements BuildRuleStrategy {
 
   @Override
   public boolean canBuild(BuildRule instance) {
-    return delegate.canBuild(instance);
+    return true;
   }
 
   @Override

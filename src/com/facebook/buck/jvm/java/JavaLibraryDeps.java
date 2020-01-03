@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.java;
@@ -50,7 +50,8 @@ public abstract class JavaLibraryDeps {
             .setExportedDepTargets(args.getExportedDeps())
             .setProvidedDepTargets(args.getProvidedDeps())
             .setExportedProvidedDepTargets(args.getExportedProvidedDeps())
-            .setSourceOnlyAbiDepTargets(args.getSourceOnlyAbiDeps());
+            .setSourceOnlyAbiDepTargets(args.getSourceOnlyAbiDeps())
+            .setRuntimeDepTargets(args.getRuntimeDeps());
     compilerFactory.getNonProvidedClasspathDeps(targetConfiguration, builder::addDepTargets);
 
     if (args instanceof HasDepsQuery) {
@@ -80,6 +81,9 @@ public abstract class JavaLibraryDeps {
   @Value.NaturalOrder
   abstract ImmutableSortedSet<BuildTarget> getSourceOnlyAbiDepTargets();
 
+  @Value.NaturalOrder
+  abstract ImmutableSortedSet<BuildTarget> getRuntimeDepTargets();
+
   abstract Optional<Query> getDepsQuery();
 
   abstract Optional<Query> getProvidedDepsQuery();
@@ -90,7 +94,8 @@ public abstract class JavaLibraryDeps {
         Iterables.concat(
             getDepTargets(),
             getExportedDepTargets(),
-            getDepsQuery().map(Query::getResolvedQuery).orElse(ImmutableSortedSet.of())));
+            getDepsQuery().map(Query::getResolvedQuery).orElse(ImmutableSortedSet.of()),
+            getRuntimeDepTargets()));
   }
 
   @Value.Lazy
@@ -115,6 +120,11 @@ public abstract class JavaLibraryDeps {
   @Value.Lazy
   public ImmutableSortedSet<BuildRule> getSourceOnlyAbiDeps() {
     return resolve(getSourceOnlyAbiDepTargets());
+  }
+
+  @Value.Lazy
+  public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
+    return resolve(getRuntimeDepTargets());
   }
 
   private ImmutableSortedSet<BuildRule> resolve(Iterable<BuildTarget> targets) {

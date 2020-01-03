@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.artifact_cache;
@@ -20,13 +20,14 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.types.Pair;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -487,7 +488,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   @Override
-  public final ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
+  public final ListenableFuture<Unit> store(ArtifactInfo info, BorrowablePath output) {
     if (!getCacheReadMode().isWritable()) {
       return Futures.immediateFuture(null);
     }
@@ -497,7 +498,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
       LOG.info(
           "Artifact too big so not storing it in the %s cache. " + "file=[%s] buildTarget=[%s]",
           name, output.getPath(), info.getBuildTarget());
-      return Futures.immediateFuture(null);
+      return Futures.immediateFuture(Unit.UNIT);
     }
 
     Path tmp;
@@ -505,7 +506,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
       tmp = getPathForArtifact(output);
     } catch (IOException e) {
       LOG.error(e, "Failed to store artifact in temp file: " + output.getPath());
-      return Futures.immediateFuture(null);
+      return Futures.immediateFuture(Unit.UNIT);
     }
 
     StoreEvents events = eventListener.storeScheduled(info, artifactSizeBytes);
@@ -515,7 +516,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
           try {
             StoreResult result = storeImpl(info, tmp);
             requestEvents.finished(result);
-            return null;
+            return Unit.UNIT;
           } catch (IOException e) {
             String msg =
                 String.format(
@@ -528,10 +529,10 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   @Override
-  public final ListenableFuture<Void> store(
+  public final ListenableFuture<Unit> store(
       ImmutableList<Pair<ArtifactInfo, BorrowablePath>> artifacts) {
     if (!getCacheReadMode().isWritable()) {
-      return Futures.immediateFuture(null);
+      return Futures.immediateFuture(Unit.UNIT);
     }
 
     ImmutableList.Builder<Pair<ArtifactInfo, Path>> matchedArtifactsBuilder =
@@ -565,7 +566,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
     ImmutableList<Pair<ArtifactInfo, Path>> matchedArtifacts = matchedArtifactsBuilder.build();
 
     if (matchedArtifacts.isEmpty()) {
-      return Futures.immediateFuture(null);
+      return Futures.immediateFuture(Unit.UNIT);
     }
 
     ImmutableList<Long> artifactSizesInBytes = artifactSizesInBytesBuilder.build();
@@ -601,7 +602,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
             }
           }
 
-          return null;
+          return Unit.UNIT;
         });
   }
 
@@ -719,9 +720,9 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   /** Return type used by the implementations of this abstract class. */
-  @BuckStyleTuple
-  @Value.Immutable(builder = true)
-  public interface AbstractFetchResult {
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractFetchResult {
     Optional<Long> getResponseSizeBytes();
 
     Optional<BuildTarget> getBuildTarget();
@@ -736,26 +737,27 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   /** Return type used by the implementations of this abstract class. */
-  @BuckStyleTuple
-  @Value.Immutable(builder = true)
-  public interface AbstractMultiContainsResult {
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractMultiContainsResult {
     Optional<Long> getResponseSizeBytes();
 
     ImmutableMap<RuleKey, CacheResult> getCacheResults();
   }
 
   /** Return type used by the implementations of this abstract class. */
-  @BuckStyleTuple
-  @Value.Immutable(builder = true)
-  public interface AbstractMultiFetchResult {
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractMultiFetchResult {
     /** At least one of the results must be non-skipped. */
+    @Value.Parameter
     ImmutableList<FetchResult> getResults();
   }
 
   /** Return type used by the implementations of this abstract class. */
-  @BuckStyleTuple
-  @Value.Immutable(builder = true)
-  public interface AbstractStoreResult {
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractStoreResult {
     Optional<Long> getRequestSizeBytes();
 
     Optional<String> getArtifactContentHash();

@@ -1,17 +1,17 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.ocaml;
@@ -29,7 +29,7 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
@@ -38,6 +38,8 @@ import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroups;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -48,7 +50,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.FluentIterable;
@@ -56,6 +58,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -171,16 +174,23 @@ public class OcamlRuleBuilder {
       ActionGraphBuilder graphBuilder,
       TargetConfiguration targetConfiguration,
       Iterable<BuildRule> deps) {
+    // Get the topologically sorted native linkables.
+    ImmutableMap<BuildTarget, NativeLinkableGroup> roots =
+        NativeLinkableGroups.getNativeLinkableRoots(
+            deps,
+            (Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>>)
+                r ->
+                    r instanceof OcamlLibrary
+                        ? Optional.of(
+                            ((OcamlLibrary) r).getOcamlLibraryDeps(graphBuilder, platform))
+                        : Optional.empty());
+
     return NativeLinkables.getTransitiveNativeLinkableInput(
-        platform.getCxxPlatform(),
         graphBuilder,
         targetConfiguration,
-        deps,
-        Linker.LinkableDepType.STATIC,
-        r ->
-            r instanceof OcamlLibrary
-                ? Optional.of(((OcamlLibrary) r).getOcamlLibraryDeps(graphBuilder, platform))
-                : Optional.empty());
+        Iterables.transform(
+            roots.values(), g -> g.getNativeLinkable(platform.getCxxPlatform(), graphBuilder)),
+        Linker.LinkableDepType.STATIC);
   }
 
   static OcamlBuild createBulkCompileRule(
@@ -201,7 +211,7 @@ public class OcamlRuleBuilder {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 ocamlPlatform.getCxxPlatform(),
                 graphBuilder,
-                FluentIterable.from(deps).filter(CxxPreprocessorDep.class::isInstance)));
+                FluentIterable.from(deps).filter(CxxPreprocessorDep.class)));
 
     ImmutableList<String> nativeIncludes =
         FluentIterable.from(deps)
@@ -308,7 +318,8 @@ public class OcamlRuleBuilder {
                 .getCCompiler()
                 .resolve(graphBuilder, buildTarget.getTargetConfiguration()),
             ocamlPlatform
-                .getCxxCompiler()
+                .getCxxPlatform()
+                .getLd()
                 .resolve(graphBuilder, buildTarget.getTargetConfiguration()),
             bytecodeOnly));
   }
@@ -333,7 +344,7 @@ public class OcamlRuleBuilder {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 ocamlPlatform.getCxxPlatform(),
                 graphBuilder,
-                FluentIterable.from(deps).filter(CxxPreprocessorDep.class::isInstance)));
+                FluentIterable.from(deps).filter(CxxPreprocessorDep.class)));
 
     ImmutableList<String> nativeIncludes =
         FluentIterable.from(deps)
@@ -444,7 +455,8 @@ public class OcamlRuleBuilder {
                 .getCCompiler()
                 .resolve(graphBuilder, buildTarget.getTargetConfiguration()),
             ocamlPlatform
-                .getCxxCompiler()
+                .getCxxPlatform()
+                .getLd()
                 .resolve(graphBuilder, buildTarget.getTargetConfiguration()),
             bytecodeOnly,
             buildNativePlugin);
@@ -453,7 +465,7 @@ public class OcamlRuleBuilder {
   }
 
   private static ImmutableList<SourcePath> getCInput(
-      SourcePathResolver resolver, ImmutableList<SourcePath> input) {
+      SourcePathResolverAdapter resolver, ImmutableList<SourcePath> input) {
     return input.stream()
         .filter(OcamlUtil.sourcePathExt(resolver, OcamlCompilables.OCAML_C))
         .collect(ImmutableList.toImmutableList());

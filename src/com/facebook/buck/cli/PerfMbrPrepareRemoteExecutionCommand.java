@@ -1,29 +1,30 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cli;
 
 import com.facebook.buck.cli.HeapDumper.DumpType;
 import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.remoteexecution.WorkerRequirementsProvider;
+import com.facebook.buck.remoteexecution.FileBasedWorkerRequirementsProvider;
 import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
 import com.facebook.buck.remoteexecution.interfaces.Protocol;
@@ -31,7 +32,9 @@ import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.builders.ModernBuildRuleRemoteExecutionHelper;
 import com.facebook.buck.rules.modern.builders.RemoteExecutionActionInfo;
+import com.facebook.buck.rules.modern.builders.RemoteExecutionHelper;
 import com.facebook.buck.util.CommandLineException;
+import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.concurrent.JobLimiter;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Verify;
@@ -43,10 +46,12 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -91,7 +96,7 @@ public class PerfMbrPrepareRemoteExecutionCommand
       throw new CommandLineException("must specify at least one build target");
     }
 
-    TargetGraph targetGraph = getTargetGraph(params, targets);
+    TargetGraphCreationResult targetGraph = getTargetGraph(params, targets);
 
     // Get a fresh action graph since we might unsafely run init from disks...
     // Also, we don't measure speed of this part.
@@ -106,19 +111,6 @@ public class PerfMbrPrepareRemoteExecutionCommand
   void runPerfTest(CommandRunnerParams params, PreparedState state) throws Exception {
     Cell rootCell = params.getCell();
     Protocol protocol = new GrpcProtocol();
-    ImmutableSet<Optional<String>> cellNames =
-        ModernBuildRuleRemoteExecutionHelper.getCellNames(rootCell);
-    ModernBuildRuleRemoteExecutionHelper helper =
-        new ModernBuildRuleRemoteExecutionHelper(
-            params.getBuckEventBus(),
-            protocol,
-            state.graphBuilder,
-            rootCell.getCellPathResolver(),
-            rootCell,
-            cellNames,
-            ModernBuildRuleRemoteExecutionHelper.getCellPathPrefix(
-                rootCell.getCellPathResolver(), cellNames),
-            path -> HashCode.fromInt(path.hashCode()));
 
     // Use a service similar to a build. This helps with contention issues and really helps detect
     // GC issues (when using just 1 thread, the gc has a ton of resources to keep up with our
@@ -130,6 +122,38 @@ public class PerfMbrPrepareRemoteExecutionCommand
 
     RemoteExecutionConfig config = params.getBuckConfig().getView(RemoteExecutionConfig.class);
 
+    RemoteExecutionHelper helper =
+        new ModernBuildRuleRemoteExecutionHelper(
+            params.getBuckEventBus(),
+            protocol,
+            state.graphBuilder,
+            rootCell,
+            new FileHashCache() {
+              @Override
+              public HashCode get(Path path) {
+                return HashCode.fromInt(path.hashCode());
+              }
+
+              @Override
+              public long getSize(Path path) throws IOException {
+                return Files.size(path);
+              }
+
+              @Override
+              public HashCode getForArchiveMember(Path relativeArchivePath, Path memberPath) {
+                return HashCode.fromInt(0);
+              }
+
+              @Override
+              public void invalidate(Path path) {}
+
+              @Override
+              public void invalidateAll() {}
+
+              @Override
+              public void set(Path path, HashCode hashCode) {}
+            },
+            config.getStrategyConfig().getIgnorePaths());
     int maxPendingUploads = config.getStrategyConfig().getMaxConcurrentPendingUploads();
     JobLimiter uploadsLimiter = new JobLimiter(maxPendingUploads);
 
@@ -153,8 +177,8 @@ public class PerfMbrPrepareRemoteExecutionCommand
                           try {
                             return helper.prepareRemoteExecution(
                                 (ModernBuildRule<?>) buildRule,
-                                digest -> !containedHashes.contains(digest),
-                                WorkerRequirementsProvider.DONT_RETRY_ON_OOM_DEFAULT);
+                                (digest, ignored) -> !containedHashes.contains(digest),
+                                FileBasedWorkerRequirementsProvider.DONT_RETRY_ON_OOM_DEFAULT);
                           } catch (Exception e) {
                             // Ignore. Hopefully this is just a serialization failure. In normal
                             // builds, those rules just fall back to non-RE.

@@ -1,38 +1,46 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.modern.builders;
 
+import build.bazel.remote.execution.v2.ExecutedActionMetadata;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.engine.BuildStrategyContext;
+import com.facebook.buck.core.exceptions.ThrowableCauseIterable;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.remoteexecution.event.LocalFallbackEvent;
 import com.facebook.buck.remoteexecution.event.LocalFallbackEvent.Result;
+import com.facebook.buck.remoteexecution.event.RemoteExecutionActionEvent.State;
+import com.facebook.buck.remoteexecution.util.MultiThreadedBlobUploader;
+import com.facebook.buck.step.StepFailedException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -42,10 +50,21 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
 
   private final BuildRuleStrategy mainBuildRuleStrategy;
   private final BuckEventBus eventBus;
+  private final boolean localFallbackEnabled;
+  private final boolean localFallbackDisabledOnCorruptedArtifacts;
+  private final boolean localFallbackEnabledForCompletedAction;
 
-  public LocalFallbackStrategy(BuildRuleStrategy mainBuildRuleStrategy, BuckEventBus eventBus) {
+  public LocalFallbackStrategy(
+      BuildRuleStrategy mainBuildRuleStrategy,
+      BuckEventBus eventBus,
+      boolean localFallbackEnabled,
+      boolean localFallbackDisabledOnCorruptedArtifacts,
+      boolean localFallbackEnabledForCompletedAction) {
     this.mainBuildRuleStrategy = mainBuildRuleStrategy;
     this.eventBus = eventBus;
+    this.localFallbackEnabled = localFallbackEnabled;
+    this.localFallbackDisabledOnCorruptedArtifacts = localFallbackDisabledOnCorruptedArtifacts;
+    this.localFallbackEnabledForCompletedAction = localFallbackEnabledForCompletedAction;
   }
 
   @Override
@@ -59,7 +78,10 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
         rule.getFullyQualifiedName(),
         mainBuildRuleStrategy.build(rule, strategyContext),
         strategyContext,
-        eventBus);
+        eventBus,
+        localFallbackEnabled,
+        localFallbackDisabledOnCorruptedArtifacts,
+        localFallbackEnabledForCompletedAction);
   }
 
   @Override
@@ -74,6 +96,12 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
     }
   }
 
+  /** Thrown when execution failed remotely and cannot be retried locally */
+  public static class RemoteActionFailedException extends Exception {
+    RemoteActionFailedException(String message) {
+      super(message);
+    }
+  }
   /**
    * Contains the combined result of running the remote execution and local execution if necessary.
    */
@@ -86,17 +114,27 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
     private final BuckEventBus eventBus;
     private final LocalFallbackEvent.Started startedEvent;
     private final Stopwatch remoteExecutionTimer;
+    private final boolean localFallbackEnabled;
+    private final boolean localFallbackDisabledOnCorruptedArtifacts;
+    private final boolean localFallbackEnabledForCompletedAction;
 
     private Optional<ListenableFuture<Optional<BuildResult>>> localStrategyBuildResult;
     private boolean hasCancellationBeenRequested;
     private Optional<LocalFallbackEvent.Result> remoteBuildResult;
     private Optional<String> remoteBuildErrorMessage;
+    private Status remoteGrpcStatus;
+    private State lastNonTerminalState;
+    private OptionalInt exitCode;
+    private Optional<ExecutedActionMetadata> executedActionMetadata;
 
     public FallbackStrategyBuildResult(
         String buildTarget,
         StrategyBuildResult remoteStrategyBuildResult,
         BuildStrategyContext strategyContext,
-        BuckEventBus eventBus) {
+        BuckEventBus eventBus,
+        boolean localFallbackEnabled,
+        boolean localFallbackDisabledOnCorruptedArtifacts,
+        boolean localFallbackEnabledForCompletedAction) {
       this.lock = new Object();
       this.localStrategyBuildResult = Optional.empty();
       this.buildTarget = buildTarget;
@@ -109,6 +147,13 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
       this.remoteBuildResult = Optional.empty();
       this.remoteExecutionTimer = Stopwatch.createStarted();
       this.remoteBuildErrorMessage = Optional.empty();
+      this.localFallbackEnabled = localFallbackEnabled;
+      this.localFallbackDisabledOnCorruptedArtifacts = localFallbackDisabledOnCorruptedArtifacts;
+      this.localFallbackEnabledForCompletedAction = localFallbackEnabledForCompletedAction;
+      this.remoteGrpcStatus = Status.fromCode(Status.Code.OK);
+      this.lastNonTerminalState = State.WAITING;
+      this.exitCode = OptionalInt.empty();
+      this.executedActionMetadata = Optional.empty();
 
       this.eventBus.post(this.startedEvent);
       this.remoteStrategyBuildResult
@@ -168,9 +213,8 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
             completeCombinedFutureWithException(e, Result.INTERRUPTED, Result.NOT_RUN);
             return;
           }
-
           handleRemoteBuildFailedWithException(e);
-        } catch (ExecutionException e) {
+        } catch (StatusRuntimeException | ExecutionException e) {
           handleRemoteBuildFailedWithException(e.getCause());
         }
       }
@@ -186,16 +230,48 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
         remoteBuildResult = Optional.of(Result.FAIL);
       }
       remoteBuildErrorMessage = Optional.of(result.toString());
-      fallbackBuildToLocalStrategy();
+      if (localFallbackEnabled
+          && (!localFallbackDisabledOnCorruptedArtifacts
+              || !(MultiThreadedBlobUploader.CorruptArtifactException.isCause(
+                  ThrowableCauseIterable.of(result.get().getFailure()))))) {
+        fallbackBuildToLocalStrategy();
+      } else {
+        completeCombinedFuture(result, remoteBuildResult.get(), Result.NOT_RUN);
+      }
     }
 
     private void handleRemoteBuildFailedWithException(Throwable t) {
-      LOG.warn(
-          t, "Remote build failed for a build rule so trying locally now for [%s].", buildTarget);
       remoteBuildResult =
           Optional.of(t instanceof InterruptedException ? Result.INTERRUPTED : Result.EXCEPTION);
+      if (t instanceof StepFailedException) {
+        StepFailedException exc = (StepFailedException) t;
+        exitCode = exc.getExitCode();
+        executedActionMetadata = exc.getExecutedActionMetadata();
+      }
+      remoteGrpcStatus = exitCode.isPresent() ? Status.OK : Status.fromThrowable(t);
+
+      if (remoteStrategyBuildResult
+          instanceof RemoteExecutionStrategy.RemoteExecutionStrategyBuildResult) {
+        lastNonTerminalState =
+            ((RemoteExecutionStrategy.RemoteExecutionStrategyBuildResult) remoteStrategyBuildResult)
+                .getRuleContext()
+                .lastNonTerminalState;
+      }
+
       remoteBuildErrorMessage = Optional.of(t.toString());
-      fallbackBuildToLocalStrategy();
+      boolean fallbackEnabledForCurrentResult =
+          localFallbackEnabled
+              && (localFallbackEnabledForCompletedAction || remoteGrpcStatus != Status.OK);
+      if (fallbackEnabledForCurrentResult
+          && (!localFallbackDisabledOnCorruptedArtifacts
+              || !(MultiThreadedBlobUploader.CorruptArtifactException.isCause(
+                  ThrowableCauseIterable.of(t))))) {
+        LOG.warn(
+            t, "Remote build failed for a build rule so trying locally now for [%s].", buildTarget);
+        fallbackBuildToLocalStrategy();
+      } else {
+        completeCombinedFutureWithException(t, remoteBuildResult.get(), Result.NOT_RUN);
+      }
     }
 
     private void fallbackBuildToLocalStrategy() {
@@ -203,7 +279,7 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
         completeCombinedFutureWithException(
             new RemoteActionCancelledException(
                 "Unable to fall back to Local Strategy, execution has been cancelled"),
-            remoteBuildResult.get(),
+            Result.CANCELLED,
             Result.NOT_RUN);
         return;
       }
@@ -238,7 +314,6 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
             completeCombinedFutureWithException(e, remoteBuildResult.get(), Result.INTERRUPTED);
             return;
           }
-
           handleLocalBuildFailedWithException(e);
         } catch (ExecutionException e) {
           handleLocalBuildFailedWithException(e.getCause());
@@ -262,7 +337,11 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
               remote,
               local,
               remoteExecutionTimer.elapsed(TimeUnit.MILLISECONDS),
-              remoteBuildErrorMessage));
+              remoteBuildErrorMessage,
+              remoteGrpcStatus,
+              lastNonTerminalState,
+              exitCode,
+              executedActionMetadata));
     }
 
     private void completeCombinedFutureWithException(
@@ -273,7 +352,11 @@ public class LocalFallbackStrategy implements BuildRuleStrategy {
               remote,
               local,
               remoteExecutionTimer.elapsed(TimeUnit.MILLISECONDS),
-              remoteBuildErrorMessage));
+              remoteBuildErrorMessage,
+              remoteGrpcStatus,
+              lastNonTerminalState,
+              exitCode,
+              executedActionMetadata));
     }
   }
 }

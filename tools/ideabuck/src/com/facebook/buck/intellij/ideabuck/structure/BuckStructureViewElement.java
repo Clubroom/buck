@@ -1,24 +1,26 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.intellij.ideabuck.structure;
 
 import com.facebook.buck.intellij.ideabuck.icons.BuckIcons;
 import com.facebook.buck.intellij.ideabuck.lang.BuckFile;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckCompoundStatement;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpression;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpressionStatement;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpressionTrailer;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionTrailer;
@@ -31,9 +33,6 @@ import com.facebook.buck.intellij.ideabuck.lang.psi.impl.BuckExpressionImpl;
 import com.facebook.buck.intellij.ideabuck.lang.psi.impl.BuckFunctionDefinitionImpl;
 import com.facebook.buck.intellij.ideabuck.lang.psi.impl.BuckFunctionTrailerImpl;
 import com.facebook.buck.intellij.ideabuck.lang.psi.impl.BuckLoadArgumentImpl;
-import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import com.intellij.icons.AllIcons;
 import com.intellij.icons.AllIcons.ToolbarDecorator;
 import com.intellij.ide.projectView.PresentationData;
@@ -201,9 +200,11 @@ public abstract class BuckStructureViewElement<E extends NavigatablePsiElement>
               .filter(arg -> "name".equals(arg.getName()))
               .findFirst()
               .map(BuckArgument::getExpression)
-              .map(expression -> Optional.of(expression)
-                  .map(BuckPsiUtils::getStringValueFromExpression)
-                  .orElse(expression.getText()))
+              .map(
+                  expression ->
+                      Optional.of(expression)
+                          .map(BuckExpression::getStringValue)
+                          .orElse(expression.getText()))
               .orElse("<unnamed>");
         }
 

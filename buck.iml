@@ -22,6 +22,11 @@
       <excludeFolder url="file://$MODULE_DIR$/.buckd" />
       <excludeFolder url="file://$MODULE_DIR$/ant-out" />
       <excludeFolder url="file://$MODULE_DIR$/buck-out" />
+      <excludeFolder url="file://$MODULE_DIR$/skunkworks/protobuck/buckv2/target" />
+      <excludeFolder url="file://$MODULE_DIR$/skunkworks/protobuck/dice/target" />
+      <excludeFolder url="file://$MODULE_DIR$/skunkworks/protobuck/dice_macros/target" />
+      <excludeFolder url="file://$MODULE_DIR$/skunkworks/protobuck/math/target" />
+      <excludeFolder url="file://$MODULE_DIR$/skunkworks/protobuck/target" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/android/support" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/intellij" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/abi/java11" />
@@ -36,9 +41,12 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/bootstrapper/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/configurations/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/query/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/model/actiongraph/computation/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/model/targetgraph/impl/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/rules/analysis/impl/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/rules/configsetting/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/select/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/crosscell/testdata" />
@@ -46,7 +54,6 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/toolchain/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/d/testdata" />
-      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/distributed/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/dotnet/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/event/listener/integration/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/event/listener/testdata" />
@@ -88,6 +95,7 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/integration/testlibs" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/packaged_resource/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/util/versioncontrol/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/util/zip/collect/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/zip/testdata" />
     </content>
     <orderEntry type="jdk" jdkName="1.8" jdkType="JavaSDK" />
@@ -136,13 +144,17 @@
     <orderEntry type="library" name="opencensus-api-0.18.0" level="project" />
     <orderEntry type="library" name="remote-apis" level="project" />
     <orderEntry type="library" name="guava-20.0" level="project" />
-    <orderEntry type="library" name="bundletool-0.7.1" level="project" />
-    <orderEntry type="library" name="aapt2-proto-0.3.1" level="project" />
+    <orderEntry type="library" name="bundletool-0.10.3-fb" level="project" />
+    <orderEntry type="library" name="aapt2-proto-0.4.0" level="project" />
     <orderEntry type="library" name="commons-compress-1.18" level="project" />
     <orderEntry type="library" name="apksig" level="project" />
-    <orderEntry type="library" name="zstd-jni-1.3.5-2" level="project" />
+    <orderEntry type="library" name="zstd-jni-1.4.0-1" level="project" />
     <orderEntry type="library" name="a2api" level="project" />
     <orderEntry type="library" name="devspeed.logging" level="project" />
     <orderEntry type="library" name="KotlinJavaRuntime" level="project" />
+    <orderEntry type="library" name="kotlin-annotations" level="project" />
+    <orderEntry type="library" name="kotlin-compiler" level="project" />
+    <orderEntry type="library" name="kotlinx-metadata" level="project" />
+    <orderEntry type="library" name="jackson-module-kotlin-2.9.9" level="project" />
   </component>
 </module>

@@ -1,23 +1,23 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
@@ -28,15 +28,14 @@ import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDeps;
@@ -47,24 +46,23 @@ import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceTypes;
-import com.facebook.buck.cxx.CxxToolFlags;
-import com.facebook.buck.cxx.ExplicitCxxToolFlags;
-import com.facebook.buck.cxx.PreprocessorFlags;
 import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.nativelink.LegacyNativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
+import com.facebook.buck.cxx.toolchain.nativelink.PlatformLockedNativeLinkableGroup;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
@@ -73,10 +71,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -274,6 +272,11 @@ public class HaskellLibraryDescription
                 deps,
                 hsProfile);
         libraries = ImmutableSortedSet.of(library.getSourcePathToOutput());
+
+        if (hsProfile) {
+          throw new IllegalStateException("shared,prof is not supported");
+        }
+
         break;
       case STATIC:
       case STATIC_PIC:
@@ -288,15 +291,12 @@ public class HaskellLibraryDescription
                 args,
                 deps,
                 depType,
-                false);
+                hsProfile);
+        libraries = ImmutableSortedSet.of(library.getSourcePathToOutput());
 
+        // TODO: exclude vanilla library from profiling library
         if (hsProfile) {
-          if (!(Linker.LinkableDepType.STATIC == depType
-              || Linker.LinkableDepType.STATIC_PIC == depType)) {
-            throw new IllegalStateException();
-          }
-
-          BuildRule profiledLibrary =
+          BuildRule vanillaLibrary =
               requireStaticLibrary(
                   getBaseBuildTarget(haskellPlatformsProvider, target),
                   projectFilesystem,
@@ -306,15 +306,11 @@ public class HaskellLibraryDescription
                   platform,
                   args,
                   deps,
-                  depType,
-                  true);
-
+                  Linker.LinkableDepType.STATIC,
+                  false);
           libraries =
               ImmutableSortedSet.of(
-                  library.getSourcePathToOutput(), profiledLibrary.getSourcePathToOutput());
-
-        } else {
-          libraries = ImmutableSortedSet.of(library.getSourcePathToOutput());
+                  library.getSourcePathToOutput(), vanillaLibrary.getSourcePathToOutput());
         }
         break;
       default:
@@ -325,18 +321,14 @@ public class HaskellLibraryDescription
         ImmutableSortedMap.naturalOrder();
     for (BuildRule rule : deps) {
       if (rule instanceof HaskellCompileDep) {
-        ImmutableList<HaskellPackage> packages =
-            ((HaskellCompileDep) rule).getCompileInput(platform, depType, hsProfile).getPackages();
-        for (HaskellPackage pkg : packages) {
-          depPackagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
-        }
+        HaskellPackage pkg =
+            ((HaskellCompileDep) rule).getCompileInput(platform, depType, hsProfile).getPackage();
+        depPackagesBuilder.put(pkg.getIdentifier(), pkg);
       }
     }
 
     ImmutableSortedMap<String, HaskellPackage> depPackages = depPackagesBuilder.build();
 
-    ImmutableSortedSet<SourcePath> interfaces;
-    ImmutableSortedSet<SourcePath> objects;
     HaskellCompileRule compileRule =
         requireCompileRule(
             target,
@@ -347,10 +339,13 @@ public class HaskellLibraryDescription
             args,
             deps,
             depType,
-            false);
+            hsProfile);
+    ImmutableSortedSet<SourcePath> interfaces = ImmutableSortedSet.of(compileRule.getInterfaces());
+    ImmutableSortedSet<SourcePath> objects = ImmutableSortedSet.of(compileRule.getObjectsDir());
 
+    // TODO: exclude vanilla library from profiling library
     if (hsProfile) {
-      HaskellCompileRule profiledCompileRule =
+      HaskellCompileRule vanillaCompileRule =
           requireCompileRule(
               target,
               projectFilesystem,
@@ -359,16 +354,12 @@ public class HaskellLibraryDescription
               platform,
               args,
               deps,
-              depType,
-              true);
-
+              Linker.LinkableDepType.STATIC,
+              false);
       interfaces =
-          ImmutableSortedSet.of(compileRule.getInterfaces(), profiledCompileRule.getInterfaces());
+          ImmutableSortedSet.of(compileRule.getInterfaces(), vanillaCompileRule.getInterfaces());
       objects =
-          ImmutableSortedSet.of(compileRule.getObjectsDir(), profiledCompileRule.getObjectsDir());
-    } else {
-      interfaces = ImmutableSortedSet.of(compileRule.getInterfaces());
-      objects = ImmutableSortedSet.of(compileRule.getObjectsDir());
+          ImmutableSortedSet.of(compileRule.getObjectsDir(), vanillaCompileRule.getObjectsDir());
     }
 
     return HaskellPackageRule.from(
@@ -452,55 +443,14 @@ public class HaskellLibraryDescription
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();
     ImmutableSet<BuildRule> deps = allDeps.get(graphBuilder, cxxPlatform);
-
-    // Collect all Haskell deps
-    ImmutableSet.Builder<SourcePath> haddockInterfaces = ImmutableSet.builder();
-    ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
-        ImmutableSortedMap.naturalOrder();
-    ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
-        ImmutableSortedMap.naturalOrder();
-
-    // Traverse all deps to pull interfaces
-    new AbstractBreadthFirstTraversal<BuildRule>(deps) {
-      @Override
-      public Iterable<BuildRule> visit(BuildRule rule) {
-        ImmutableSet.Builder<BuildRule> traverse = ImmutableSet.builder();
-        if (rule instanceof HaskellCompileDep) {
-          HaskellCompileDep haskellCompileDep = (HaskellCompileDep) rule;
-
-          // Get haddock-interfaces
-          HaskellHaddockInput inp = haskellCompileDep.getHaddockInput(platform);
-          haddockInterfaces.addAll(inp.getInterfaces());
-
-          HaskellCompileInput compileInput =
-              haskellCompileDep.getCompileInput(
-                  platform, Linker.LinkableDepType.STATIC, args.isEnableProfiling());
-          boolean firstOrderDep = deps.contains(rule);
-          for (HaskellPackage pkg : compileInput.getPackages()) {
-            if (firstOrderDep) {
-              exposedPackagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
-            } else {
-              packagesBuilder.put(pkg.getInfo().getIdentifier(), pkg);
-            }
-          }
-          traverse.addAll(haskellCompileDep.getCompileDeps(platform));
-        }
-        return traverse.build();
-      }
-    }.start();
-
-    Collection<CxxPreprocessorInput> cxxPreprocessorInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, deps);
-    ExplicitCxxToolFlags.Builder toolFlagsBuilder = CxxToolFlags.explicitBuilder();
-    PreprocessorFlags.Builder ppFlagsBuilder = PreprocessorFlags.builder();
-    toolFlagsBuilder.setPlatformFlags(
-        StringArg.from(CxxSourceTypes.getPlatformPreprocessFlags(cxxPlatform, CxxSource.Type.C)));
-    for (CxxPreprocessorInput input : cxxPreprocessorInputs) {
-      ppFlagsBuilder.addAllIncludes(input.getIncludes());
-      ppFlagsBuilder.addAllFrameworkPaths(input.getFrameworks());
-      toolFlagsBuilder.addAllRuleFlags(input.getPreprocessorFlags().get(CxxSource.Type.C));
-    }
-    ppFlagsBuilder.setOtherFlags(toolFlagsBuilder.build());
+    HaskellCompilerFlags compilerFlags =
+        HaskellDescriptionUtils.createCompileFlags(
+            graphBuilder,
+            deps,
+            platform,
+            Linker.LinkableDepType.STATIC,
+            args.isEnableProfiling(),
+            args.getCompilerFlags());
 
     return graphBuilder.addToIndex(
         HaskellHaddockLibRule.from(
@@ -511,16 +461,12 @@ public class HaskellLibraryDescription
             HaskellSources.from(baseTarget, graphBuilder, platform, "srcs", args.getSrcs()),
             platform.getHaddock().resolve(graphBuilder, baseTarget.getTargetConfiguration()),
             args.getHaddockFlags(),
-            args.getCompilerFlags(),
+            compilerFlags,
             platform.getLinkerFlags(),
-            haddockInterfaces.build(),
-            packagesBuilder.build(),
-            exposedPackagesBuilder.build(),
             getPackageInfo(platform, baseTarget),
             platform,
             CxxSourceTypes.getPreprocessor(platform.getCxxPlatform(), CxxSource.Type.C)
-                .resolve(graphBuilder, baseTarget.getTargetConfiguration()),
-            ppFlagsBuilder.build()));
+                .resolve(graphBuilder, baseTarget.getTargetConfiguration())));
   }
 
   private HaskellLinkRule createSharedLibrary(
@@ -546,7 +492,7 @@ public class HaskellLibraryDescription
 
     String name =
         CxxDescriptionEnhancer.getSharedLibrarySoname(
-            Optional.empty(), target.withFlavors(), platform.getCxxPlatform());
+            Optional.empty(), target.withFlavors(), platform.getCxxPlatform(), projectFilesystem);
     Path outputPath = BuildTargetPaths.getGenPath(projectFilesystem, target, "%s").resolve(name);
 
     return HaskellDescriptionUtils.createLinkRule(
@@ -558,7 +504,7 @@ public class HaskellLibraryDescription
         Linker.LinkType.SHARED,
         ImmutableList.of(),
         ImmutableList.copyOf(SourcePathArg.from(compileRule.getObjects())),
-        RichStream.from(deps).filter(NativeLinkable.class).toImmutableList(),
+        RichStream.from(deps).filter(NativeLinkableGroup.class).toImmutableList(),
         ImmutableSet.of(),
         Linker.LinkableDepType.SHARED,
         outputPath,
@@ -623,7 +569,8 @@ public class HaskellLibraryDescription
       BuildRuleParams params,
       HaskellLibraryDescriptionArg args) {
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
-    HaskellPlatformsProvider haskellPlatformsProvider = getHaskellPlatformsProvider();
+    HaskellPlatformsProvider haskellPlatformsProvider =
+        getHaskellPlatformsProvider(buildTarget.getTargetConfiguration());
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     FlavorDomain<HaskellPlatform> platforms = haskellPlatformsProvider.getHaskellPlatforms();
 
@@ -721,6 +668,8 @@ public class HaskellLibraryDescription
     }
 
     return new HaskellLibrary(buildTarget, projectFilesystem, params) {
+      private final PlatformLockedNativeLinkableGroup.Cache linkableCache =
+          LegacyNativeLinkableGroup.getNativeLinkableCache(this);
 
       @Override
       public Iterable<BuildRule> getCompileDeps(HaskellPlatform platform) {
@@ -744,7 +693,7 @@ public class HaskellLibraryDescription
                 allDeps.get(graphBuilder, platform.getCxxPlatform()),
                 depType,
                 hsProfile);
-        return HaskellCompileInput.builder().addPackages(rule.getPackage()).build();
+        return HaskellCompileInput.builder().setPackage(rule.getPackage()).build();
       }
 
       @Override
@@ -799,27 +748,41 @@ public class HaskellLibraryDescription
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableDeps(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableDeps(
           BuildRuleResolver ruleResolver) {
         return ImmutableList.of();
+      }
+
+      @Override
+      public Optional<Iterable<? extends NativeLinkableGroup>> getOmnibusPassthroughDeps(
+          CxxPlatform platform, ActionGraphBuilder graphBuilder) {
+        ImmutableSet<? extends NativeLinkable> platformDeps =
+            ImmutableSet.copyOf(
+                getNativeLinkable(platform, graphBuilder)
+                    .getNativeLinkableExportedDeps(graphBuilder));
+        Iterable<? extends NativeLinkableGroup> allDeps =
+            getNativeLinkableExportedDeps(graphBuilder);
+        return Optional.of(
+            Iterables.filter(
+                allDeps, g -> platformDeps.contains(g.getNativeLinkable(platform, graphBuilder))));
       }
 
       private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache =
           new TransitiveCxxPreprocessorInputCache(this);
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDepsForPlatform(
           CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         return RichStream.from(allDeps.get(graphBuilder, cxxPlatform))
-            .filter(NativeLinkable.class)
+            .filter(NativeLinkableGroup.class)
             .toImmutableList();
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDeps(
           BuildRuleResolver ruleResolver) {
         return RichStream.from(allDeps.getForAllPlatforms(graphBuilder))
-            .filter(NativeLinkable.class)
+            .filter(NativeLinkableGroup.class)
             .toImmutableList();
       }
 
@@ -885,7 +848,7 @@ public class HaskellLibraryDescription
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
             CxxDescriptionEnhancer.getSharedLibrarySoname(
-                Optional.empty(), getBuildTarget(), cxxPlatform);
+                Optional.empty(), getBuildTarget(), cxxPlatform, projectFilesystem);
         BuildRule sharedLibraryBuildRule =
             requireSharedLibrary(
                 getBaseBuildTarget(haskellPlatformsProvider, getBuildTarget()),
@@ -900,12 +863,20 @@ public class HaskellLibraryDescription
         libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
         return libs.build();
       }
+
+      @Override
+      public PlatformLockedNativeLinkableGroup.Cache getNativeLinkableCompatibilityCache() {
+        return linkableCache;
+      }
     };
   }
 
   @Override
-  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    if (getHaskellPlatformsProvider().getHaskellPlatforms().containsAnyOf(flavors)) {
+  public boolean hasFlavors(
+      ImmutableSet<Flavor> flavors, TargetConfiguration toolchainTargetConfiguration) {
+    if (getHaskellPlatformsProvider(toolchainTargetConfiguration)
+        .getHaskellPlatforms()
+        .containsAnyOf(flavors)) {
       return true;
     }
 
@@ -927,13 +898,18 @@ public class HaskellLibraryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     HaskellDescriptionUtils.getParseTimeDeps(
         buildTarget.getTargetConfiguration(),
-        getHaskellPlatformsProvider().getHaskellPlatforms().getValues(),
+        getHaskellPlatformsProvider(buildTarget.getTargetConfiguration())
+            .getHaskellPlatforms()
+            .getValues(),
         targetGraphOnlyDepsBuilder);
   }
 
-  private HaskellPlatformsProvider getHaskellPlatformsProvider() {
+  private HaskellPlatformsProvider getHaskellPlatformsProvider(
+      TargetConfiguration toolchainTargetConfiguration) {
     return toolchainProvider.getByName(
-        HaskellPlatformsProvider.DEFAULT_NAME, HaskellPlatformsProvider.class);
+        HaskellPlatformsProvider.DEFAULT_NAME,
+        toolchainTargetConfiguration,
+        HaskellPlatformsProvider.class);
   }
 
   protected enum Type implements FlavorConvertible {
@@ -967,7 +943,7 @@ public class HaskellLibraryDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractHaskellLibraryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+  interface AbstractHaskellLibraryDescriptionArg extends BuildRuleArg, HasDeclaredDeps {
     @Value.Default
     default SourceSortedSet getSrcs() {
       return SourceSortedSet.EMPTY;
@@ -988,8 +964,8 @@ public class HaskellLibraryDescription
     }
 
     @Value.Default
-    default NativeLinkable.Linkage getPreferredLinkage() {
-      return NativeLinkable.Linkage.ANY;
+    default NativeLinkableGroup.Linkage getPreferredLinkage() {
+      return NativeLinkableGroup.Linkage.ANY;
     }
 
     @Value.Default

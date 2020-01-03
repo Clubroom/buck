@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple.toolchain;
@@ -19,10 +19,8 @@ package com.facebook.buck.apple.toolchain;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsSupplier;
 import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
-import com.facebook.buck.cxx.toolchain.impl.StaticUnresolvedCxxPlatform;
 import com.google.common.collect.ImmutableMap;
 import org.immutables.value.Value;
 
@@ -33,18 +31,19 @@ public abstract class AbstractAppleCxxPlatformsProvider implements CxxPlatformsS
   public static final String DEFAULT_NAME = "apple-cxx-platforms";
 
   @Value.Parameter
-  public abstract FlavorDomain<AppleCxxPlatform> getAppleCxxPlatforms();
+  public abstract FlavorDomain<UnresolvedAppleCxxPlatform> getUnresolvedAppleCxxPlatforms();
 
-  /** @return {@link CxxPlatform} of all {@link AppleCxxPlatform}s */
+  /** @return {@link UnresolvedCxxPlatform} of all {@link UnresolvedAppleCxxPlatform}s */
   @Override
-  public ImmutableMap<Flavor, UnresolvedCxxPlatform> getCxxPlatforms() {
+  public ImmutableMap<Flavor, UnresolvedCxxPlatform> getUnresolvedCxxPlatforms() {
     ImmutableMap.Builder<Flavor, UnresolvedCxxPlatform> cxxSystemPlatformsBuilder =
         ImmutableMap.builder();
 
-    for (AppleCxxPlatform appleCxxPlatform : getAppleCxxPlatforms().getValues()) {
+    for (UnresolvedAppleCxxPlatform appleCxxPlatform :
+        getUnresolvedAppleCxxPlatforms().getValues()) {
       cxxSystemPlatformsBuilder.put(
-          appleCxxPlatform.getCxxPlatform().getFlavor(),
-          new StaticUnresolvedCxxPlatform(appleCxxPlatform.getCxxPlatform()));
+          appleCxxPlatform.getUnresolvedCxxPlatform().getFlavor(),
+          appleCxxPlatform.getUnresolvedCxxPlatform());
     }
     return cxxSystemPlatformsBuilder.build();
   }

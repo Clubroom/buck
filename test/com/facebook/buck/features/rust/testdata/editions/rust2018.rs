@@ -1,9 +1,11 @@
 pub fn do_thing() {
-  crate::inner::innerdo();
+    crate::inner::innerdo();
 }
 
 mod inner {
-  pub fn innerdo() {
-    common::common();
-  }
+    use common::common_func;
+
+    pub fn innerdo() {
+        common_func();
+    }
 }

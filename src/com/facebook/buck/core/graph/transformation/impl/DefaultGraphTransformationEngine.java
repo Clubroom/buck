@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.graph.transformation.impl;
@@ -41,6 +41,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Transformation engine that transforms supplied {@link ComputeKey} into {@link ComputeResult} via
@@ -167,6 +168,8 @@ public final class DefaultGraphTransformationEngine implements GraphTransformati
     @VisibleForTesting
     final ConcurrentHashMap<ComputeKey<? extends ComputeResult>, TaskType> computationIndex;
 
+    private volatile boolean isClosed;
+
     /**
      * @param transformationStageMap a map of the key types to the transformation stages
      * @param estimatedNumOps the estimated number of operations this engine will execute given a
@@ -183,27 +186,31 @@ public final class DefaultGraphTransformationEngine implements GraphTransformati
     }
 
     public void close() {
-      executor.close();
+      isClosed = true;
+      computationIndex.clear();
     }
 
     @SuppressWarnings("unchecked")
     private <UResultType extends ComputeResult, UKeyType extends ComputeKey<UResultType>>
         Future<UResultType> compute(UKeyType key) {
-      LOG.verbose("Attempting to load from cache for key: %s", key);
-      GraphComputationStage<ComputeKey<? extends ComputeResult>, ? extends ComputeResult> stage =
-          transformationStageMap.get(key);
-      Optional<? extends ComputeResult> result = stage.getCache().get(key);
-      if (result.isPresent()) {
-        return CompletableFuture.completedFuture((UResultType) result.get());
+      if (isClosed) {
+        throw new RejectedExecutionException("GraphEngine has been closed");
       }
 
-      TaskType task = convertKeyToTask(key, stage);
+      LOG.verbose("Attempting to load from cache for key: %s", key);
+      GraphComputationStage<UKeyType, UResultType> stage = transformationStageMap.get(key);
+      Optional<UResultType> result = stage.getCache().get(key);
+      if (result.isPresent()) {
+        return CompletableFuture.completedFuture(result.get());
+      }
+
+      TaskType task = convertKeyToTask(key);
       return (Future<UResultType>) executor.submit(task);
     }
 
-    private TaskType convertKeyToTask(
-        ComputeKey<? extends ComputeResult> key,
-        GraphComputationStage<ComputeKey<? extends ComputeResult>, ? extends ComputeResult> stage) {
+    private <UResultType extends ComputeResult, UKeyType extends ComputeKey<UResultType>>
+        TaskType convertKeyToTask(UKeyType key) {
+      GraphComputationStage<UKeyType, UResultType> stage = transformationStageMap.get(key);
       return computationIndex.computeIfAbsent(
           key,
           mapKey -> {
@@ -233,44 +240,44 @@ public final class DefaultGraphTransformationEngine implements GraphTransformati
           });
     }
 
-    private ComputeResult computeForKey(
-        ComputeKey<? extends ComputeResult> key,
-        GraphComputationStage<ComputeKey<?>, ? extends ComputeResult> stage,
-        ImmutableMap<ComputeKey<?>, ComputeResult> depResults)
-        throws Exception {
-      ComputeResult result = stage.transform(key, new DefaultComputationEnvironment(depResults));
+    private <UResultType extends ComputeResult, UKeyType extends ComputeKey<UResultType>>
+        UResultType computeForKey(
+            UKeyType key,
+            GraphComputationStage<UKeyType, UResultType> stage,
+            ImmutableMap<ComputeKey<?>, ComputeResult> depResults)
+            throws Exception {
+      UResultType result = stage.transform(key, new DefaultComputationEnvironment(depResults));
 
       computationIndex.remove(key);
       return result;
     }
 
-    private ImmutableSet<TaskType> computePreliminaryDepForKey(
-        ComputeKey<? extends ComputeResult> key,
-        GraphComputationStage<ComputeKey<? extends ComputeResult>, ? extends ComputeResult> stage,
-        ImmutableMap.Builder<ComputeKey<?>, Future<ComputeResult>> depResults)
-        throws Exception {
+    private <UResultType extends ComputeResult, UKeyType extends ComputeKey<UResultType>>
+        ImmutableSet<TaskType> computePreliminaryDepForKey(
+            UKeyType key,
+            GraphComputationStage<UKeyType, UResultType> stage,
+            ImmutableMap.Builder<ComputeKey<?>, Future<ComputeResult>> depResults)
+            throws Exception {
       ImmutableSet<? extends ComputeKey<?>> preliminaryDepKeys =
           stage.getTransformer().discoverPreliminaryDeps(key);
       ImmutableSet.Builder<TaskType> preliminaryDepWorkBuilder =
           ImmutableSet.builderWithExpectedSize(preliminaryDepKeys.size());
-      preliminaryDepKeys.forEach(
-          preliminaryDepKey -> {
-            GraphComputationStage<ComputeKey<? extends ComputeResult>, ? extends ComputeResult>
-                depStage = transformationStageMap.get(preliminaryDepKey);
-            TaskType task = convertKeyToTask(preliminaryDepKey, depStage);
-            depResults.put(preliminaryDepKey, task.getResultFuture());
-            preliminaryDepWorkBuilder.add(task);
-          });
+      for (ComputeKey<?> preliminaryDepKey : preliminaryDepKeys) {
+        TaskType task = convertKeyToTask(preliminaryDepKey);
+        depResults.put(preliminaryDepKey, task.getResultFuture());
+        preliminaryDepWorkBuilder.add(task);
+      }
       return preliminaryDepWorkBuilder.build();
     }
 
-    private ImmutableSet<TaskType> computeDepsForKey(
-        GraphComputationStage<ComputeKey<? extends ComputeResult>, ? extends ComputeResult> stage,
-        ComputeKey<? extends ComputeResult> key,
-        ImmutableMap.Builder<ComputeKey<?>, Future<ComputeResult>> depResults)
-        throws Exception {
+    private <UResultType extends ComputeResult, UKeyType extends ComputeKey<UResultType>>
+        ImmutableSet<TaskType> computeDepsForKey(
+            GraphComputationStage<UKeyType, UResultType> stage,
+            UKeyType key,
+            ImmutableMap.Builder<ComputeKey<?>, Future<ComputeResult>> depResults)
+            throws Exception {
 
-      ImmutableSet<? extends ComputeKey<? extends ComputeResult>> depKeys =
+      ImmutableSet<? extends ComputeKey<?>> depKeys =
           stage
               .getTransformer()
               .discoverDeps(
@@ -279,8 +286,8 @@ public final class DefaultGraphTransformationEngine implements GraphTransformati
       // task that executes secondary deps, depending on the initial deps
       ImmutableSet.Builder<TaskType> depWorkBuilder =
           ImmutableSet.builderWithExpectedSize(depKeys.size());
-      for (ComputeKey<? extends ComputeResult> depKey : depKeys) {
-        TaskType task = convertKeyToTask(depKey, transformationStageMap.get(depKey));
+      for (ComputeKey<?> depKey : depKeys) {
+        TaskType task = convertKeyToTask(depKey);
         depResults.put(depKey, task.getResultFuture());
         depWorkBuilder.add(task);
       }

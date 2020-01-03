@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -20,6 +20,7 @@ import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
@@ -27,8 +28,8 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -230,7 +231,7 @@ class Depfiles {
           int inputIndex =
               prereqs.indexOf(
                   useUnixPathSeparator
-                      ? MorePaths.pathWithUnixSeparators(inputPath)
+                      ? PathFormatter.pathWithUnixSeparators(inputPath)
                       : inputPath.toString());
           Preconditions.checkState(
               inputIndex != -1,
@@ -280,6 +281,7 @@ class Depfiles {
   public static ImmutableList<Path> parseAndVerifyDependencies(
       BuckEventBus eventBus,
       ProjectFilesystem filesystem,
+      SourcePathResolverAdapter pathResolver,
       HeaderPathNormalizer headerPathNormalizer,
       HeaderVerification headerVerification,
       Path sourceDepFile,
@@ -308,6 +310,7 @@ class Depfiles {
       return normalizeAndVerifyHeaders(
           eventBus,
           filesystem,
+          pathResolver,
           headerPathNormalizer,
           headerVerification,
           inputPath,
@@ -320,6 +323,7 @@ class Depfiles {
   private static ImmutableList<Path> normalizeAndVerifyHeaders(
       BuckEventBus eventBus,
       ProjectFilesystem filesystem,
+      SourcePathResolverAdapter pathResolver,
       HeaderPathNormalizer headerPathNormalizer,
       HeaderVerification headerVerification,
       Path inputPath,
@@ -334,7 +338,8 @@ class Depfiles {
     List<String> errors = new ArrayList<String>();
     for (String rawHeader : headers) {
       Path header = filesystem.resolve(rawHeader).normalize();
-      Optional<Path> absolutePath = headerPathNormalizer.getAbsolutePathForUnnormalizedPath(header);
+      Optional<Path> absolutePath =
+          headerPathNormalizer.getAbsolutePathForUnnormalizedPath(pathResolver, header);
       Optional<Path> repoRelativePath = filesystem.getPathRelativeToProjectRoot(header);
       if (absolutePath.isPresent()) {
         Preconditions.checkState(absolutePath.get().isAbsolute());
@@ -347,7 +352,7 @@ class Depfiles {
         // Check again with the real path with all symbolic links resolved.
         header = header.toRealPath();
         if (!(headerVerification.isWhitelisted(header.toString()))) {
-          String errorMessage = untrackedHeaderReporter.getErrorReport(header);
+          String errorMessage = untrackedHeaderReporter.getErrorReport(pathResolver, header);
           errors.add(errorMessage);
         }
       }

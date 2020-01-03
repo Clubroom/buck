@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.intellij.ideabuck.navigation;
@@ -24,7 +24,6 @@ import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionDefinition;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckIdentifier;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadCall;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckString;
 import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.google.common.annotations.VisibleForTesting;
@@ -69,22 +68,30 @@ public class BuckGotoProvider extends GotoDeclarationHandlerBase {
     if (buckIdentifier != null) {
       return resolveAsIdentifier(project, buckIdentifier);
     }
-    String elementAsString = BuckPsiUtils.getStringValueFromBuckString(element);
-    if (elementAsString == null) {
-      return null;
+    BuckString buckString = PsiTreeUtil.getParentOfType(element, BuckString.class, false);
+    if (buckString != null) {
+      return resolveAsBuckString(project, sourceFile, buckString);
     }
-    Optional<BuckTargetPattern> targetPattern = BuckTargetPattern.parse(elementAsString);
+    return null;
+  }
+
+  @Nullable
+  private PsiElement resolveAsBuckString(
+      Project project, VirtualFile sourceFile, BuckString buckString) {
+    return resolveTextAsTargetPatternOrRelativeFile(project, sourceFile, buckString.getValue());
+  }
+
+  @Nullable
+  private PsiElement resolveTextAsTargetPatternOrRelativeFile(
+      Project project, VirtualFile sourceFile, String text) {
+    Optional<BuckTargetPattern> targetPattern = BuckTargetPattern.parse(text);
     if (targetPattern.isPresent()) {
-      if (PsiTreeUtil.getParentOfType(element, BuckLoadTargetArgument.class) != null) {
-        return resolveAsLoadTarget(project, sourceFile, targetPattern.get());
-      } else {
-        return targetPattern
-            .flatMap(BuckTargetPattern::asBuckTarget)
-            .map(t -> resolveAsBuckTarget(project, sourceFile, t))
-            .orElseGet(() -> resolveAsBuckTargetPattern(project, sourceFile, targetPattern.get()));
-      }
+      return targetPattern
+          .flatMap(BuckTargetPattern::asBuckTarget)
+          .map(t -> resolveAsBuckTarget(project, sourceFile, t))
+          .orElseGet(() -> resolveAsBuckTargetPattern(project, sourceFile, targetPattern.get()));
     } else {
-      return resolveAsRelativeFile(project, sourceFile, elementAsString);
+      return resolveAsRelativeFile(project, sourceFile, text);
     }
   }
 
@@ -104,9 +111,7 @@ public class BuckGotoProvider extends GotoDeclarationHandlerBase {
         .map(PsiManager.getInstance(project)::findFile)
         .map(
             psiFile ->
-                BuckPsiUtils.findSymbolInPsiTree(
-                    psiFile,
-                    BuckPsiUtils.getStringValueFromBuckString(buckLoadArgument.getString())))
+                BuckPsiUtils.findSymbolInPsiTree(psiFile, buckLoadArgument.getString().getValue()))
         .orElse(null);
   }
 

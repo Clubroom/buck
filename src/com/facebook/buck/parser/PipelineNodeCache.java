@@ -1,18 +1,19 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
@@ -25,12 +26,15 @@ import com.google.common.util.concurrent.SettableFuture;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Predicate;
 
 class PipelineNodeCache<K, T> {
   private final Cache<K, T> cache;
   protected final ConcurrentMap<K, ListenableFuture<T>> jobsCache;
+  private final Predicate<T> targetNodeIsConfiguration;
 
-  public PipelineNodeCache(Cache<K, T> cache) {
+  public PipelineNodeCache(Cache<K, T> cache, Predicate<T> targetNodeIsConfiguration) {
+    this.targetNodeIsConfiguration = targetNodeIsConfiguration;
     this.jobsCache = new ConcurrentHashMap<>();
     this.cache = cache;
   }
@@ -66,9 +70,12 @@ class PipelineNodeCache<K, T> {
         ListenableFuture<T> cacheJob =
             Futures.transformAsync(
                 job,
-                input ->
-                    Futures.immediateFuture(
-                        cache.putComputedNodeIfNotPresent(cell, key, input, eventBus)),
+                input -> {
+                  boolean targetNodeIsConfiguration = this.targetNodeIsConfiguration.test(input);
+                  return Futures.immediateFuture(
+                      cache.putComputedNodeIfNotPresent(
+                          cell, key, input, targetNodeIsConfiguration, eventBus));
+                },
                 MoreExecutors.directExecutor());
         resultFuture.setFuture(cacheJob);
       }
@@ -93,9 +100,11 @@ class PipelineNodeCache<K, T> {
      * @param cell cell
      * @param target target of the node
      * @param targetNode node to insert
+     * @param targetIsConfiguration target is configuration target
      * @return previous node for the target if the cache contained it, new one otherwise.
      */
-    V putComputedNodeIfNotPresent(Cell cell, K target, V targetNode, BuckEventBus eventBus)
+    V putComputedNodeIfNotPresent(
+        Cell cell, K target, V targetNode, boolean targetIsConfiguration, BuckEventBus eventBus)
         throws BuildTargetException;
   }
 }

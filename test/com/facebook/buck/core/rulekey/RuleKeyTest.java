@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.rulekey;
@@ -27,7 +27,6 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.io.ArchiveMemberPath;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
@@ -49,12 +48,14 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStylePrehashedValue;
+import com.facebook.buck.core.util.immutables.BuckStyleValue;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.log.ConsoleHandler;
 import com.facebook.buck.rules.keys.AbstractRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyAppendable;
 import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics.Result;
 import com.facebook.buck.rules.keys.RuleKeyFactory;
@@ -69,6 +70,7 @@ import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -102,7 +104,7 @@ public class RuleKeyTest {
   @Test
   public void testRuleKeyDependsOnDeps() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -515,16 +517,16 @@ public class RuleKeyTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     new FakeProjectFilesystem(), FileHashCacheMode.DEFAULT)));
 
     BuildRule buildRule1 =
-        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "bar");
+        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "bar");
     BuildRule buildRule2 =
-        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "xyzzy");
+        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "xyzzy");
 
     RuleKey ruleKey1 = new TestDefaultRuleKeyFactory(hashCache, ruleFinder).build(buildRule1);
     RuleKey ruleKey2 = new TestDefaultRuleKeyFactory(hashCache, ruleFinder).build(buildRule2);
@@ -566,7 +568,7 @@ public class RuleKeyTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
 
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
@@ -588,16 +590,16 @@ public class RuleKeyTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    FileHashCache hashCache =
+    FileHashLoader hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     new FakeProjectFilesystem(), FileHashCacheMode.DEFAULT)));
 
     BuildRule buildRule1 =
-        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "bar");
+        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "bar");
     BuildRule buildRule2 =
-        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "xyzzy");
+        new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "xyzzy");
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//cheese:milk");
 
@@ -622,7 +624,7 @@ public class RuleKeyTest {
 
       public NoopSetterRuleKeyBuilder(
           SourcePathRuleFinder ruleFinder,
-          FileHashCache hashCache,
+          FileHashLoader hashCache,
           RuleKeyFactory<RuleKey> defaultRuleKeyFactory) {
         super(ruleFinder, hashCache, defaultRuleKeyFactory);
       }
@@ -634,7 +636,7 @@ public class RuleKeyTest {
     }
 
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    FileHashCache hashCache = new FakeFileHashCache(ImmutableMap.of());
+    FileHashLoader hashCache = new FakeFileHashCache(ImmutableMap.of());
     RuleKeyFactory<RuleKey> ruleKeyFactory = new TestDefaultRuleKeyFactory(hashCache, ruleFinder);
 
     RuleKey nullRuleKey =
@@ -650,7 +652,7 @@ public class RuleKeyTest {
   @Test
   public void declaredDepsAndExtraDepsGenerateDifferentRuleKeys() {
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
-    FileHashCache hashCache = new FakeFileHashCache(ImmutableMap.of());
+    FileHashLoader hashCache = new FakeFileHashCache(ImmutableMap.of());
     DefaultRuleKeyFactory ruleKeyFactory = new TestDefaultRuleKeyFactory(hashCache, ruleFinder);
 
     BuildTarget target = BuildTargetFactory.newInstance("//a:target");
@@ -690,17 +692,45 @@ public class RuleKeyTest {
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
     RuleKey first =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyInterfaceImmutable.of("added-1", "ignored-1"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfaceImmutable.of("added-1", "ignored-1"))
             .build(RuleKey::new);
 
     RuleKey second =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyInterfaceImmutable.of("added-1", "ignored-2"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfaceImmutable.of("added-1", "ignored-2"))
             .build(RuleKey::new);
 
     RuleKey third =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyInterfaceImmutable.of("added-2", "ignored-2"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfaceImmutable.of("added-2", "ignored-2"))
+            .build(RuleKey::new);
+
+    assertEquals(first, second);
+    assertNotEquals(first, third);
+  }
+
+  @Test
+  public void immutablesCanAddValueMethodsFromInterfacePrehashedImmutablesToRuleKeys() {
+    SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
+    RuleKey first =
+        createBuilder(ruleFinder)
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfacePrehashedImmutable.of("added-1", "ignored-1"))
+            .build(RuleKey::new);
+
+    RuleKey second =
+        createBuilder(ruleFinder)
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfacePrehashedImmutable.of("added-1", "ignored-2"))
+            .build(RuleKey::new);
+
+    RuleKey third =
+        createBuilder(ruleFinder)
+            .setReflectively(
+                "value", ImmutableTestRuleKeyInterfacePrehashedImmutable.of("added-2", "ignored-2"))
             .build(RuleKey::new);
 
     assertEquals(first, second);
@@ -731,9 +761,16 @@ public class RuleKeyTest {
             "string(\"com.facebook.buck.core.rulekey.RuleKeyTest$?????\"):key(.class)"));
   }
 
-  @Value.Immutable
-  @BuckStyleTuple
-  interface AbstractTestRuleKeyInterfaceImmutable extends AddsToRuleKey {
+  @BuckStyleValue
+  interface TestRuleKeyInterfaceImmutable extends AddsToRuleKey {
+    @AddToRuleKey
+    String getRuleKeyValue();
+
+    String getNonRuleKeyValue();
+  }
+
+  @BuckStylePrehashedValue
+  interface TestRuleKeyInterfacePrehashedImmutable extends AddsToRuleKey {
     @AddToRuleKey
     String getRuleKeyValue();
 
@@ -773,17 +810,20 @@ public class RuleKeyTest {
     SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
     RuleKey first =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyAbstractImmutable.of("added-1", "ignored-1"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyAbstractImmutable.of("added-1", "ignored-1"))
             .build(RuleKey::new);
 
     RuleKey second =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyAbstractImmutable.of("added-1", "ignored-2"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyAbstractImmutable.of("added-1", "ignored-2"))
             .build(RuleKey::new);
 
     RuleKey third =
         createBuilder(ruleFinder)
-            .setReflectively("value", TestRuleKeyAbstractImmutable.of("added-2", "ignored-2"))
+            .setReflectively(
+                "value", ImmutableTestRuleKeyAbstractImmutable.of("added-2", "ignored-2"))
             .build(RuleKey::new);
 
     assertEquals(first, second);
@@ -816,13 +856,12 @@ public class RuleKeyTest {
         .build(RuleKey::new);
   }
 
-  @Value.Immutable
-  @BuckStyleTuple
-  abstract static class AbstractTestRuleKeyAbstractImmutable implements AddsToRuleKey {
+  @BuckStyleValue
+  interface TestRuleKeyAbstractImmutable extends AddsToRuleKey {
     @AddToRuleKey
-    abstract String getRuleKeyValue();
+    String getRuleKeyValue();
 
-    abstract String getNonRuleKeyValue();
+    String getNonRuleKeyValue();
   }
 
   @Test(expected = UncheckedExecutionException.class)
@@ -896,8 +935,6 @@ public class RuleKeyTest {
 
   private static class TestRuleKeyAppendableBuildRule
       extends NoopBuildRuleWithDeclaredAndExtraDeps {
-    private final String foo;
-
     @SuppressWarnings("PMD.UnusedPrivateField")
     @AddToRuleKey
     private final String bar;
@@ -906,16 +943,9 @@ public class RuleKeyTest {
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
         BuildRuleParams buildRuleParams,
-        String foo,
         String bar) {
       super(buildTarget, projectFilesystem, buildRuleParams);
-      this.foo = foo;
       this.bar = bar;
-    }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("foo", foo);
     }
   }
 
@@ -927,7 +957,7 @@ public class RuleKeyTest {
   }
 
   private TestDefaultRuleKeyFactory createFactory(SourcePathRuleFinder ruleFinder) {
-    FileHashCache fileHashCache =
+    FileHashLoader fileHashLoader =
         new FileHashCache() {
 
           @Override
@@ -942,7 +972,7 @@ public class RuleKeyTest {
           }
 
           @Override
-          public HashCode get(ArchiveMemberPath archiveMemberPath) {
+          public HashCode getForArchiveMember(Path relativeArchivePath, Path memberPath) {
             return HashCode.fromString("deadbeef");
           }
 
@@ -954,7 +984,7 @@ public class RuleKeyTest {
           @Override
           public void set(Path path, HashCode hashCode) {}
         };
-    return new TestDefaultRuleKeyFactory(fileHashCache, ruleFinder);
+    return new TestDefaultRuleKeyFactory(fileHashLoader, ruleFinder);
   }
 
   private RuleKeyResult<RuleKey> buildResult(AbstractRuleKeyBuilder<HashCode> builder) {

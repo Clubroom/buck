@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.file;
@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.HttpdForTests;
@@ -35,7 +36,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -86,7 +86,7 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void setsExecutableBitToTrue() throws IOException, InterruptedException {
+  public void setsExecutableBitToTrue() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     workspace.setUp();
@@ -94,11 +94,10 @@ public class HttpFileIntegrationTest {
 
     Path outputPath =
         workspace
-            .getBuckPaths()
-            .getGenDir()
-            .resolve("echo_executable.sh")
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_executable.sh"), "%s")
             .resolve("echo_executable.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_executable.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_executable.sh"), "%s");
 
     workspace.runBuckCommand("fetch", "//:echo_executable.sh").assertSuccess();
 
@@ -111,7 +110,7 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void setsExecutableBitToFalse() throws IOException, InterruptedException {
+  public void setsExecutableBitToFalse() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     workspace.setUp();
@@ -119,11 +118,10 @@ public class HttpFileIntegrationTest {
 
     Path outputPath =
         workspace
-            .getBuckPaths()
-            .getGenDir()
-            .resolve("echo_nonexecutable.sh")
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_nonexecutable.sh"), "%s")
             .resolve("echo_nonexecutable.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_nonexecutable.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_nonexecutable.sh"), "%s");
 
     workspace.runBuckCommand("fetch", "//:echo_nonexecutable.sh").assertSuccess();
 
@@ -136,17 +134,16 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void doesNotWriteFileIfDownloadFails() throws IOException, InterruptedException {
+  public void doesNotWriteFileIfDownloadFails() throws IOException {
     workspace.setUp();
     rewriteBuckFileTemplate();
 
     Path outputPath =
         workspace
-            .getBuckPaths()
-            .getGenDir()
-            .resolve("echo_bad_urls.sh")
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_bad_urls.sh"), "%s")
             .resolve("echo_bad_urls.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_bad_urls.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_bad_urls.sh"), "%s");
 
     ProcessResult result = workspace.runBuckCommand("fetch", "//:echo_bad_urls.sh");
 
@@ -163,7 +160,7 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void doesNotWriteFileIfShaVerificationFails() throws IOException, InterruptedException {
+  public void doesNotWriteFileIfShaVerificationFails() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     workspace.setUp();
@@ -171,11 +168,10 @@ public class HttpFileIntegrationTest {
 
     Path outputPath =
         workspace
-            .getBuckPaths()
-            .getGenDir()
-            .resolve("echo_bad_hash.sh")
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_bad_hash.sh"), "%s")
             .resolve("echo_bad_hash.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_bad_hash.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_bad_hash.sh"), "%s");
 
     ProcessResult result = workspace.runBuckCommand("fetch", "//:echo_bad_hash.sh");
 
@@ -194,12 +190,13 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void downloadsFileAndValidatesIt() throws IOException, InterruptedException {
+  public void downloadsFileAndValidatesIt() throws IOException {
     workspace.setUp();
     rewriteBuckFileTemplate();
 
-    Path outputPath = workspace.getBuckPaths().getGenDir().resolve("echo.sh").resolve("echo.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo.sh");
+    Path outputPath =
+        workspace.getGenPath(BuildTargetFactory.newInstance("//:echo.sh"), "%s").resolve("echo.sh");
+    Path scratchPath = workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo.sh"), "%s");
 
     workspace.runBuckCommand("fetch", "//:echo.sh").assertSuccess();
 
@@ -211,14 +208,16 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void writesFileToAlternateLocationIfOutProvided()
-      throws IOException, InterruptedException {
+  public void writesFileToAlternateLocationIfOutProvided() throws IOException {
     workspace.setUp();
     rewriteBuckFileTemplate();
 
-    Path relativeOutputPath = Paths.get("echo_with_out.sh", "some_file.sh");
-    Path outputPath = workspace.getBuckPaths().getGenDir().resolve(relativeOutputPath);
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_with_out.sh");
+    Path outputPath =
+        workspace
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_with_out.sh"), "%s")
+            .resolve("some_file.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_with_out.sh"), "%s");
 
     workspace.runBuckCommand("fetch", "//:echo_with_out.sh").assertSuccess();
 
@@ -230,7 +229,7 @@ public class HttpFileIntegrationTest {
   }
 
   @Test
-  public void downloadsFromMavenCoordinates() throws IOException, InterruptedException {
+  public void downloadsFromMavenCoordinates() throws IOException {
     workspace.setUp();
     TestDataHelper.overrideBuckconfig(
         workspace,
@@ -238,11 +237,10 @@ public class HttpFileIntegrationTest {
 
     Path outputPath =
         workspace
-            .getBuckPaths()
-            .getGenDir()
-            .resolve("echo_from_maven.sh")
+            .getGenPath(BuildTargetFactory.newInstance("//:echo_from_maven.sh"), "%s")
             .resolve("echo_from_maven.sh");
-    Path scratchPath = workspace.getBuckPaths().getScratchDir().resolve("echo_from_maven.sh");
+    Path scratchPath =
+        workspace.getScratchPath(BuildTargetFactory.newInstance("//:echo_from_maven.sh"), "%s");
 
     workspace.runBuckCommand("fetch", "//:echo_from_maven.sh").assertSuccess();
 

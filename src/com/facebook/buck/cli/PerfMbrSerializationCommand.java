@@ -1,23 +1,24 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cli;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -54,7 +55,7 @@ public class PerfMbrSerializationCommand
       throw new CommandLineException("must specify at least one build target");
     }
 
-    TargetGraph targetGraph = getTargetGraph(params, targets);
+    TargetGraphCreationResult targetGraph = getTargetGraph(params, targets);
 
     // Get a fresh action graph since we might unsafely run init from disks...
     // Also, we don't measure speed of this part.
@@ -66,7 +67,7 @@ public class PerfMbrSerializationCommand
   }
 
   @Override
-  void runPerfTest(CommandRunnerParams params, PreparedState state) throws Exception {
+  void runPerfTest(CommandRunnerParams params, PreparedState state) {
     Cell rootCell = params.getCell();
     Serializer serializer =
         new Serializer(

@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.toolchain.ndk.impl;
@@ -37,13 +37,15 @@ public class NdkCxxPlatformsProviderFactory implements ToolchainFactory<NdkCxxPl
 
   @Override
   public Optional<NdkCxxPlatformsProvider> createToolchain(
-      ToolchainProvider toolchainProvider, ToolchainCreationContext context) {
+      ToolchainProvider toolchainProvider,
+      ToolchainCreationContext context,
+      TargetConfiguration toolchainTargetConfiguration) {
 
     ImmutableMap<TargetCpuType, UnresolvedNdkCxxPlatform> ndkCxxPlatforms =
         getNdkCxxPlatforms(
             context.getBuckConfig(),
             context.getFilesystem(),
-            context.getTargetConfiguration().get(),
+            toolchainTargetConfiguration,
             toolchainProvider);
 
     return Optional.of(NdkCxxPlatformsProvider.of(ndkCxxPlatforms));
@@ -64,7 +66,8 @@ public class NdkCxxPlatformsProviderFactory implements ToolchainFactory<NdkCxxPl
       ndkVersion = androidConfig.getNdkVersion().get();
     } else {
       AndroidNdk androidNdk =
-          toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
+          toolchainProvider.getByName(
+              AndroidNdk.DEFAULT_NAME, targetConfiguration, AndroidNdk.class);
       ndkVersion = androidNdk.getNdkVersion();
     }
 

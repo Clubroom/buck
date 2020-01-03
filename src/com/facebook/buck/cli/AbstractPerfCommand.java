@@ -1,30 +1,33 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cli;
 
 import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.core.util.graph.CycleException;
 import com.facebook.buck.event.FlushConsoleEvent;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -40,7 +43,6 @@ import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.config.Config;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Stopwatch;
@@ -163,10 +165,10 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
   }
 
   /** Most of our perf tests require a target graph, this helps them get it concisely. */
-  protected TargetGraph getTargetGraph(
+  protected TargetGraphCreationResult getTargetGraph(
       CommandRunnerParams params, ImmutableSet<BuildTarget> targets)
       throws InterruptedException, IOException, VersionException {
-    TargetGraph targetGraph;
+    TargetGraphCreationResult targetGraph;
     try (CommandThreadManager pool =
         new CommandThreadManager("Perf", getConcurrencyLimit(params.getBuckConfig()))) {
       targetGraph =
@@ -179,9 +181,7 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
       throw new BuckUncheckedExecutionException(e);
     }
     if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-      targetGraph =
-          toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
-              .getTargetGraph();
+      targetGraph = toVersionedTargetGraph(params, targetGraph);
     }
     return targetGraph;
   }
@@ -198,8 +198,7 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
 
   /** Gets a list of the rules in the graph reachable from the provided targets. */
   protected static ImmutableList<BuildRule> getRulesInGraph(
-      ActionGraphBuilder graphBuilder, Iterable<BuildTarget> targets)
-      throws AcyclicDepthFirstPostOrderTraversal.CycleException {
+      ActionGraphBuilder graphBuilder, Iterable<BuildTarget> targets) throws CycleException {
     ImmutableList.Builder<BuildRule> rulesBuilder = ImmutableList.builder();
 
     ImmutableSortedSet<BuildRule> topLevelRules = graphBuilder.requireAllRules(targets);
@@ -245,27 +244,32 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
                     new ProjectFilesystemFactory() {
                       @Override
                       public ProjectFilesystem createProjectFilesystem(
+                          CanonicalCellName cellName,
                           Path root,
                           Config config,
                           Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo) {
                         return createHashFakingFilesystem(
                             new DefaultProjectFilesystemFactory()
-                                .createProjectFilesystem(root, config, embeddedCellBuckOutInfo));
+                                .createProjectFilesystem(
+                                    cellName, root, config, embeddedCellBuckOutInfo));
                       }
 
                       @Override
-                      public ProjectFilesystem createProjectFilesystem(Path root, Config config) {
-                        return createProjectFilesystem(root, config, Optional.empty());
+                      public ProjectFilesystem createProjectFilesystem(
+                          CanonicalCellName cellName, Path root, Config config) {
+                        return createProjectFilesystem(cellName, root, config, Optional.empty());
                       }
 
                       @Override
-                      public ProjectFilesystem createProjectFilesystem(Path root) {
-                        return createProjectFilesystem(root, new Config());
+                      public ProjectFilesystem createProjectFilesystem(
+                          CanonicalCellName cellName, Path root) {
+                        return createProjectFilesystem(cellName, root, new Config());
                       }
 
                       @Override
-                      public ProjectFilesystem createOrThrow(Path path) {
-                        return createProjectFilesystem(path);
+                      public ProjectFilesystem createOrThrow(
+                          CanonicalCellName cellName, Path path) {
+                        return createProjectFilesystem(cellName, path);
                       }
                     },
                     cacheMode))

@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.remoteexecution.util;
 
 import static org.junit.Assert.assertEquals;
@@ -20,6 +21,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.remoteexecution.AsyncBlobFetcher;
 import com.facebook.buck.remoteexecution.ContentAddressedStorageClient.FileMaterializer;
 import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
@@ -28,9 +31,11 @@ import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.OutputFile;
 import com.facebook.buck.remoteexecution.util.OutputsCollector.CollectedOutputs;
 import com.facebook.buck.remoteexecution.util.OutputsCollector.Delegate;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -41,6 +46,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,13 +58,17 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import org.junit.Test;
 
 public class OutputsMaterializerTest {
+
+  private final int SIZE_LIMIT = 5;
 
   @Test
   public void testMaterializeFiles() throws IOException, ExecutionException, InterruptedException {
@@ -74,7 +84,7 @@ public class OutputsMaterializerTest {
     ByteString data1 = ByteString.copyFromUtf8("data1");
     ByteString data2 = ByteString.copyFromUtf8("data2");
     ByteString data3 = ByteString.copyFromUtf8("data3");
-    ByteString data4 = ByteString.copyFromUtf8("data4");
+    ByteString data4 = ByteString.copyFromUtf8("data456"); // Force size to be larger than limit
 
     Digest digest1 = protocol.computeDigest(data1.toByteArray());
     Digest digest2 = protocol.computeDigest(data2.toByteArray());
@@ -86,11 +96,14 @@ public class OutputsMaterializerTest {
     OutputFile outputFile3 = protocol.newOutputFile(path3, digest3, true);
     OutputFile outputFile4 = protocol.newOutputFile(path4, digest4, false);
 
+    ExecutorService service = Executors.newSingleThreadExecutor();
+
     AsyncBlobFetcher fetcher =
         new SimpleSingleThreadedBlobFetcher(
             ImmutableMap.of(digest1, data1, digest2, data2, digest3, data3, digest4, data4));
 
-    new OutputsMaterializer(fetcher, protocol)
+    new OutputsMaterializer(
+            SIZE_LIMIT, service, fetcher, protocol, BuckEventBusForTests.newInstance())
         .materialize(
             ImmutableList.of(),
             ImmutableList.of(outputFile1, outputFile2, outputFile3, outputFile4),
@@ -120,6 +133,43 @@ public class OutputsMaterializerTest {
   }
 
   @Test
+  public void testMaterializeZeroSizeFiles()
+      throws IOException, ExecutionException, InterruptedException {
+    Protocol protocol = new GrpcProtocol();
+    OutputsMaterializerTest.RecordingFileMaterializer recordingMaterializer =
+        new RecordingFileMaterializer();
+
+    Path path1 = Paths.get("some/output/one");
+    Path path2 = Paths.get("some/output/two");
+
+    ByteString data1 = ByteString.copyFromUtf8("");
+    ByteString data2 = ByteString.copyFromUtf8("data123"); // Force size to be larger than limit
+
+    Digest digest1 = protocol.computeDigest(data1.toByteArray());
+    Digest digest2 = protocol.computeDigest(data2.toByteArray());
+
+    OutputFile outputFile1 = protocol.newOutputFile(path1, digest1, false);
+    OutputFile outputFile2 = protocol.newOutputFile(path2, digest2, true);
+
+    ExecutorService service = Executors.newSingleThreadExecutor();
+
+    AsyncBlobFetcher fetcher =
+        new SimpleSingleThreadedBlobFetcher(ImmutableMap.of(digest1, data1, digest2, data2));
+
+    new OutputsMaterializer(
+            SIZE_LIMIT, service, fetcher, protocol, BuckEventBusForTests.newInstance())
+        .materialize(
+            ImmutableList.of(), ImmutableList.of(outputFile1, outputFile2), recordingMaterializer)
+        .get();
+
+    Map<Path, OutputItemState> expectedState =
+        ImmutableMap.of(
+            path1, new OutputItemState(data1, false), path2, new OutputItemState(data2, true));
+
+    recordingMaterializer.verify(expectedState, ImmutableSet.of("some", "some/output"));
+  }
+
+  @Test
   public void testMaterializeDirs() throws IOException, ExecutionException, InterruptedException {
     Protocol protocol = new GrpcProtocol();
     OutputsMaterializerTest.RecordingFileMaterializer recordingMaterializer =
@@ -141,6 +191,8 @@ public class OutputsMaterializerTest {
             rootDir,
             protocol);
 
+    ExecutorService service = Executors.newSingleThreadExecutor();
+
     AsyncBlobFetcher fetcher =
         new SimpleSingleThreadedBlobFetcher(
             collectedOutputs.requiredData.stream()
@@ -155,7 +207,8 @@ public class OutputsMaterializerTest {
                           }
                         })));
 
-    new OutputsMaterializer(fetcher, protocol)
+    new OutputsMaterializer(
+            SIZE_LIMIT, service, fetcher, protocol, BuckEventBusForTests.newInstance())
         .materialize(
             collectedOutputs.outputDirectories, collectedOutputs.outputFiles, recordingMaterializer)
         .get();
@@ -354,17 +407,43 @@ public class OutputsMaterializerTest {
     }
 
     @Override
-    public ListenableFuture<Void> fetchToStream(Digest digest, WritableByteChannel channel) {
+    public ListenableFuture<Unit> fetchToStream(Digest digest, WritableByteChannel channel) {
       return Futures.transform(
           fetch(digest),
           buf -> {
             try {
               channel.write(buf);
+              /* Close just as in batchFetchBlobs try() to fix isClosed test in testMaterializeFiles */
+              channel.close();
               return null;
             } catch (IOException e) {
               throw new RuntimeException(e);
             }
           });
+    }
+
+    @Override
+    public ListenableFuture<Unit> batchFetchBlobs(
+        ImmutableMultimap<Digest, Callable<WritableByteChannel>> requests,
+        ImmutableMultimap<Digest, SettableFuture<Unit>> futures)
+        throws IOException {
+      for (Digest digest : requests.keySet()) {
+        try {
+          ByteBuffer b = fetch(digest).get();
+          for (Callable<WritableByteChannel> callable : requests.get(digest)) {
+            try (WritableByteChannel channel = callable.call()) {
+              channel.write(b.duplicate());
+            } catch (Exception e) {
+              throw new BuckUncheckedExecutionException(
+                  "Unable to write " + digest + " to channel");
+            }
+          }
+          futures.get(digest).forEach(future -> future.set(null));
+        } catch (InterruptedException | ExecutionException e) {
+          throw new RuntimeException(e);
+        }
+      }
+      return Futures.immediateFuture(null);
     }
   }
 }

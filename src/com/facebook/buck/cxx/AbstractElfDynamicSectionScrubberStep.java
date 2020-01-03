@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -23,13 +23,12 @@ import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.cxx.toolchain.elf.Elf;
 import com.facebook.buck.cxx.toolchain.elf.ElfDynamicSection;
 import com.facebook.buck.cxx.toolchain.elf.ElfSection;
-import com.facebook.buck.cxx.toolchain.elf.ElfSectionLookupResult;
 import com.facebook.buck.cxx.toolchain.elf.ElfSymbolTable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -74,7 +73,7 @@ abstract class AbstractElfDynamicSectionScrubberStep implements Step {
             StandardOpenOption.WRITE)) {
       MappedByteBuffer buffer = channel.map(READ_WRITE, 0, channel.size());
       Elf elf = new Elf(buffer);
-      ElfSectionLookupResult sectionResult = elf.getMandatorySectionByName(getPath(), SECTION);
+      Elf.ElfSectionLookupResult sectionResult = elf.getMandatorySectionByName(getPath(), SECTION);
       int sectionIndex = sectionResult.getIndex();
       ElfSection section = sectionResult.getSection();
 
@@ -102,7 +101,7 @@ abstract class AbstractElfDynamicSectionScrubberStep implements Step {
         section.header.withSize(section.body.position()).write(elf.header.ei_class, buffer);
 
         // Update the `_DYNAMIC` symbol in the symbol table.
-        Optional<ElfSectionLookupResult> symtabSection = elf.getSectionByName(".symtab");
+        Optional<Elf.ElfSectionLookupResult> symtabSection = elf.getSectionByName(".symtab");
         if (symtabSection.isPresent()) {
           ElfSymbolTable symtab =
               ElfSymbolTable.parse(elf.header.ei_class, symtabSection.get().getSection().body);

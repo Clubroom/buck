@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.command;
@@ -186,10 +186,10 @@ public class Build implements Closeable {
                     configuredPaths.getSymlinkPathForDir(unconfiguredPaths.getScratchDir()));
         for (Map.Entry<Path, Path> entry : paths.entrySet()) {
           filesystem.deleteRecursivelyIfExists(entry.getKey());
+          Path parent = entry.getKey().getParent();
+          filesystem.mkdirs(parent);
           filesystem.createSymLink(
-              entry.getKey(),
-              entry.getKey().getParent().relativize(entry.getValue()),
-              /* force */ false);
+              entry.getKey(), parent.relativize(entry.getValue()), /* force */ false);
         }
       }
     }
@@ -200,10 +200,10 @@ public class Build implements Closeable {
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths buckPaths = filesystem.getBuckPaths();
 
-      filesystem.deleteFileAtPathIfExists(buckPaths.getProjectRootDir());
-
-      filesystem.writeContentsToPath(
-          filesystem.getRootPath().toString(), buckPaths.getProjectRootDir());
+      Path projectRootDir = buckPaths.getProjectRootDir();
+      filesystem.deleteFileAtPathIfExists(projectRootDir);
+      filesystem.createParentDirs(projectRootDir);
+      filesystem.writeContentsToPath(filesystem.getRootPath().toString(), projectRootDir);
     }
   }
 
@@ -285,16 +285,9 @@ public class Build implements Closeable {
         .build();
   }
 
-  /**
-   * Starts building the given BuildRules asynchronously.
-   *
-   * @param rulesToBuild
-   * @return Futures that will complete once the rules have finished building
-   * @throws IOException
-   */
-  public List<BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
+  /** Starts building the given BuildRules asynchronously. */
+  private List<BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
       throws IOException {
-
     setupBuildSymlinks();
 
     return rulesToBuild.stream()

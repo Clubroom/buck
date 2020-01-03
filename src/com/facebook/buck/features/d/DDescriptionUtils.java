@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.d;
@@ -41,7 +41,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -53,7 +53,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Map;
@@ -97,7 +96,7 @@ abstract class DDescriptionUtils {
   }
 
   /**
-   * Creates a {@link NativeLinkable} using sources compiled by the D compiler.
+   * Creates a {@link NativeLinkableGroup} using sources compiled by the D compiler.
    *
    * @param cellPathResolver
    * @param params build parameters for the build target
@@ -148,8 +147,11 @@ abstract class DDescriptionUtils {
             projectFilesystem, buildTarget, "%s/" + buildTarget.getShortName()),
         ImmutableList.of(),
         Linker.LinkableDepType.STATIC,
+        Optional.empty(),
         CxxLinkOptions.of(),
-        FluentIterable.from(params.getBuildDeps()).filter(NativeLinkable.class),
+        FluentIterable.from(params.getBuildDeps())
+            .filter(NativeLinkableGroup.class)
+            .transform(g -> g.getNativeLinkable(cxxPlatform, graphBuilder)),
         /* cxxRuntimeType */ Optional.empty(),
         /* bundleLoader */ Optional.empty(),
         ImmutableSet.of(),
@@ -168,9 +170,14 @@ abstract class DDescriptionUtils {
   }
 
   static UnresolvedCxxPlatform getUnresolvedCxxPlatform(
-      ToolchainProvider toolchainProvider, DBuckConfig dBuckConfig) {
+      ToolchainProvider toolchainProvider,
+      TargetConfiguration toolchainTargetConfiguration,
+      DBuckConfig dBuckConfig) {
     CxxPlatformsProvider cxxPlatformsProviderFactory =
-        toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
+        toolchainProvider.getByName(
+            CxxPlatformsProvider.DEFAULT_NAME,
+            toolchainTargetConfiguration,
+            CxxPlatformsProvider.class);
     return dBuckConfig
         .getDefaultCxxPlatform()
         .map(InternalFlavor::of)
@@ -183,7 +190,7 @@ abstract class DDescriptionUtils {
       ToolchainProvider toolchainProvider,
       DBuckConfig dBuckConfig,
       TargetConfiguration targetConfiguration) {
-    return getUnresolvedCxxPlatform(toolchainProvider, dBuckConfig)
+    return getUnresolvedCxxPlatform(toolchainProvider, targetConfiguration, dBuckConfig)
         .resolve(resolver, targetConfiguration);
   }
 
@@ -200,9 +207,7 @@ abstract class DDescriptionUtils {
         BuildTargetPaths.getGenPath(projectFilesystem, target, "%s"),
         MoreMaps.transformKeys(
             sources.toNameMap(target, ruleFinder.getSourcePathResolver(), "srcs"),
-            MorePaths.toPathFn(projectFilesystem.getRootPath().getFileSystem())),
-        ImmutableMultimap.of(),
-        ruleFinder);
+            MorePaths.toPathFn(projectFilesystem.getRootPath().getFileSystem())));
   }
 
   private static ImmutableMap<BuildTarget, DLibrary> getTransitiveDLibraryRules(
@@ -288,7 +293,6 @@ abstract class DDescriptionUtils {
    * @param compilerFlags flags to pass to the compiler
    * @param baseParams build parameters for the compilation
    * @param graphBuilder graphBuilder for build rules
-   * @param sourcePathResolver resolver for source paths
    * @param cxxPlatform the C++ platform to compile for
    * @param dBuckConfig the Buck configuration for D
    * @return SourcePaths of the generated object files

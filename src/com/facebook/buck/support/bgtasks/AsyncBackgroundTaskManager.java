@@ -1,23 +1,24 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.support.bgtasks;
 
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.util.types.Unit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.Futures;
 import java.util.LinkedList;
@@ -50,7 +51,7 @@ public class AsyncBackgroundTaskManager extends BackgroundTaskManager {
   private static final int DEFAULT_THREADS = 3;
 
   private final Queue<ManagedBackgroundTask<?>> scheduledTasks = new LinkedList<>();
-  private final Map<Class<?>, ManagedBackgroundTask<?>> cancellableTasks =
+  private final ConcurrentHashMap<Class<?>, ManagedBackgroundTask<?>> cancellableTasks =
       new ConcurrentHashMap<>();
 
   private final AtomicBoolean schedulerRunning;
@@ -131,19 +132,16 @@ public class AsyncBackgroundTaskManager extends BackgroundTaskManager {
   }
 
   @Override
-  Future<Void> schedule(ManagedBackgroundTask<?> task) {
+  Future<Unit> schedule(ManagedBackgroundTask<?> task) {
     if (!schedulingOpen.get()) {
       LOG.warn("Manager is not accepting new tasks; newly scheduled tasks will not be run.");
       return Futures.immediateCancelledFuture();
     }
     Class<?> actionClass = task.getActionClass();
-    synchronized (cancellableTasks) {
-      if (cancellableTasks.containsKey(actionClass)) {
-        cancellableTasks.get(actionClass).markToCancel();
-      }
-      if (task.getShouldCancelOnRepeat()) {
-        cancellableTasks.put(actionClass, task);
-      }
+    Optional.ofNullable(cancellableTasks.get(actionClass))
+        .ifPresent(ManagedBackgroundTask::markToCancel);
+    if (task.getShouldCancelOnRepeat()) {
+      cancellableTasks.put(actionClass, task);
     }
     synchronized (scheduledTasks) {
       scheduledTasks.add(task);

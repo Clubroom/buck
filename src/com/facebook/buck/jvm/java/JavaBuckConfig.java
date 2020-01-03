@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.java;
@@ -51,7 +51,7 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   public static final CommandTool DEFAULT_JAVA_TOOL =
       new CommandTool.Builder().addArg("java").build();
   static final JavaOptions DEFAULT_JAVA_OPTIONS =
-      JavaOptions.of(new ConstantToolProvider(DEFAULT_JAVA_TOOL));
+      ImmutableJavaOptions.of(new ConstantToolProvider(DEFAULT_JAVA_TOOL));
 
   private final BuckConfig delegate;
   private final Function<TargetConfiguration, JavacSpec> javacSpecSupplier;
@@ -154,7 +154,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
-    return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(getSrcRoots());
+    return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(
+        delegate.getFilesystem(), getSrcRoots());
   }
 
   public boolean trackClassUsage(TargetConfiguration targetConfiguration) {
@@ -250,10 +251,18 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return delegate.getValue(SECTION, "default_cxx_platform");
   }
 
-  public UnusedDependenciesAction getUnusedDependenciesAction() {
+  public UnusedDependenciesConfig getUnusedDependenciesAction() {
     return delegate
-        .getEnum(SECTION, "unused_dependencies_action", UnusedDependenciesAction.class)
-        .orElse(UnusedDependenciesAction.IGNORE);
+        .getEnum(SECTION, "unused_dependencies_action", UnusedDependenciesConfig.class)
+        .orElse(UnusedDependenciesConfig.IGNORE);
+  }
+
+  public Optional<String> getUnusedDependenciesBuildozerString() {
+    return delegate.getValue(SECTION, "unused_dependencies_buildozer_path");
+  }
+
+  public boolean isUnusedDependenciesOnlyPrintCommands() {
+    return delegate.getBooleanValue(SECTION, "unused_dependencies_only_print_commands", false);
   }
 
   public Optional<String> getJavaTempDir() {
@@ -280,7 +289,21 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   public enum UnusedDependenciesAction {
     FAIL,
     WARN,
-    IGNORE
+    IGNORE,
+  }
+
+  /**
+   * The same as {@link UnusedDependenciesAction} with a couple of extra options to give greater
+   * flexibility.
+   */
+  public enum UnusedDependenciesConfig {
+    FAIL,
+    WARN,
+    IGNORE,
+    // This means that every target will be ignored, even if they are marked as WARN or FAIL
+    IGNORE_ALWAYS,
+    // This means that an individual target marked as FAIL will actually be WARN.
+    WARN_IF_FAIL,
   }
 
   /** Logging level duplicates are reported at */

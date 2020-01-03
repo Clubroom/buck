@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
@@ -24,11 +24,11 @@ import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParsingContext;
-import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.spec.BuildTargetMatcherTargetNodeParser;
+import com.facebook.buck.parser.spec.TargetNodeSpec;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.support.cli.config.AliasConfig;
@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 class TargetPatternEvaluator {
   private static final Logger LOG = Logger.get(TargetPatternEvaluator.class);
@@ -54,23 +55,28 @@ class TargetPatternEvaluator {
   private final CommandLineTargetNodeSpecParser targetNodeSpecParser;
   private final BuckConfig buckConfig;
   private final Cell rootCell;
-  private final TargetConfiguration targetConfiguration;
+  private final Optional<TargetConfiguration> targetConfiguration;
 
   private Map<String, ImmutableSet<QueryTarget>> resolvedTargets = new HashMap<>();
 
   public TargetPatternEvaluator(
       Cell rootCell,
+      Path absoluteClientWorkingDir,
       BuckConfig buckConfig,
       Parser parser,
       ParsingContext parsingContext,
-      TargetConfiguration targetConfiguration) {
+      Optional<TargetConfiguration> targetConfiguration) {
     this.rootCell = rootCell;
     this.parser = parser;
     this.parsingContext = parsingContext;
     this.buckConfig = buckConfig;
     this.projectRoot = rootCell.getFilesystem().getRootPath();
     this.targetNodeSpecParser =
-        new CommandLineTargetNodeSpecParser(buckConfig, new BuildTargetPatternTargetNodeParser());
+        new CommandLineTargetNodeSpecParser(
+            rootCell,
+            absoluteClientWorkingDir,
+            buckConfig,
+            new BuildTargetMatcherTargetNodeParser());
     this.targetConfiguration = targetConfiguration;
   }
 
@@ -103,7 +109,16 @@ class TargetPatternEvaluator {
         }
       } else {
         // Check if the pattern corresponds to a build target or a path.
-        if (pattern.contains("//") || pattern.startsWith(":")) {
+        // Note: If trying to get a path with a single ':' in it, this /will/ choose to assume a
+        // build target, not a file. In general, this is okay as:
+        //  1) Most of our functions that take paths are going to be build files and the like, not
+        //     something with a ':' in it
+        //  2) By putting a ':' in the filename, you're already dooming yourself to never work on
+        //     windows. Don't do that.
+        if (pattern.contains("//")
+            || pattern.contains(":")
+            || pattern.endsWith("/...")
+            || pattern.equals("...")) {
           unresolved.put(pattern, pattern);
         } else {
           ImmutableSet<QueryTarget> fileTargets = resolveFilePattern(pattern);
@@ -136,7 +151,7 @@ class TargetPatternEvaluator {
   }
 
   private ImmutableMap<String, ImmutableSet<QueryTarget>> resolveBuildTargetPatterns(
-      List<String> patterns) throws InterruptedException, BuildFileParseException, IOException {
+      List<String> patterns) throws InterruptedException, BuildFileParseException {
 
     // Build up an ordered list of patterns and pass them to the parse to get resolved in one go.
     // The returned list of nodes maintains the spec list ordering.

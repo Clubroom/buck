@@ -1,35 +1,38 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.rules.resolver.impl;
 
 import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.config.registry.ConfigurationRuleRegistry;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.concurrent.MoreFutures;
 import com.facebook.buck.util.concurrent.Parallelizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.SettableFuture;
@@ -77,6 +80,7 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
 
   private final ListeningExecutorService executor;
   private final TargetGraph targetGraph;
+  private final ConfigurationRuleRegistry configurationRuleRegistry;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
   private final Function<BuildTarget, ToolchainProvider> toolchainProviderResolver;
 
@@ -87,9 +91,11 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
   public MultiThreadedActionGraphBuilder(
       ListeningExecutorService executor,
       TargetGraph targetGraph,
+      ConfigurationRuleRegistry configurationRuleRegistry,
       TargetNodeToBuildRuleTransformer buildRuleGenerator,
       CellProvider cellProvider) {
     this.targetGraph = targetGraph;
+    this.configurationRuleRegistry = configurationRuleRegistry;
     this.buildRuleGenerator = buildRuleGenerator;
 
     this.executor = executor;
@@ -99,7 +105,7 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
     this.metadataCache =
         new ActionGraphBuilderMetadataCache(this, this.targetGraph, initialCapacity);
     this.toolchainProviderResolver =
-        target -> cellProvider.getBuildTargetCell(target).getToolchainProvider();
+        target -> cellProvider.getCellByCanonicalCellName(target.getCell()).getToolchainProvider();
     this.parallelizer =
         new Parallelizer() {
           @Override
@@ -120,6 +126,16 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
   public Iterable<BuildRule> getBuildRules() {
     Preconditions.checkState(isValid);
     return buildRuleIndex.values().stream().map(Task::get).collect(ImmutableList.toImmutableList());
+  }
+
+  @Override
+  public Iterable<BuildRule> getSuccessfullyConstructedBuildRules() {
+    Preconditions.checkState(isValid);
+    return buildRuleIndex.values().stream()
+        .filter(task -> task.isDone() && !task.isCancelled())
+        .map(Task::getOrNullOnExecutionException)
+        .filter(buildRule -> buildRule != null)
+        .collect(ImmutableList.toImmutableList());
   }
 
   @Override
@@ -208,6 +224,7 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
    * Requires the rule asynchronously. This isn't part of the ActionGraphBuilder interface and so is
    * only used in places where we know we have a multithreaded one.
    */
+  @Override
   public ListenableFuture<BuildRule> requireRuleFuture(BuildTarget target) {
     Preconditions.checkState(isValid);
     return addRequireTask(target).schedule(executor).future;
@@ -224,8 +241,9 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
                                 buildRuleGenerator.transform(
                                     toolchainProviderResolver.apply(target),
                                     targetGraph,
+                                    configurationRuleRegistry,
                                     this,
-                                    targetGraph.get(target)))
+                                    targetGraph.get(target).cast(BuildRuleArg.class)))
                         .apply(target)));
   }
 
@@ -296,7 +314,15 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
 
     private V get() {
       tryComplete();
-      return Futures.getUnchecked(future);
+      return MoreFutures.getUncheckedInterruptibly(future);
+    }
+
+    private @Nullable V getOrNullOnExecutionException() {
+      try {
+        return get();
+      } catch (BuckUncheckedExecutionException e) {
+        return null;
+      }
     }
 
     private boolean isBeingWorkedOnByCurrentThread() {
@@ -328,6 +354,10 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
       return future.isDone();
     }
 
+    private boolean isCancelled() {
+      return future.isCancelled();
+    }
+
     private void forceComplete(V value) {
       if (!tryComplete(ignored -> value)) {
         // If completing the task normally didn't work, forcefully complete it. If the Future is
@@ -343,7 +373,7 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
 
     private void setFutureValue(V value) {
       if (!future.set(value)) {
-        V oldValue = Futures.getUnchecked(future);
+        V oldValue = MoreFutures.getUncheckedInterruptibly(future);
         Preconditions.checkState(
             oldValue == value,
             "A build rule for this target has already been created: " + oldValue);

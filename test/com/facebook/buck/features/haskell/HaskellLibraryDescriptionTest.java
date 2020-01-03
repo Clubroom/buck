@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.haskell;
@@ -23,9 +23,9 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -33,13 +33,13 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
@@ -87,12 +87,6 @@ public class HaskellLibraryDescriptionTest {
                     CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                     HaskellLibraryDescription.Type.STATIC.getFlavor()))
             .build(graphBuilder);
-    BuildRule staticPicLib =
-        new HaskellLibraryBuilder(
-                baseTarget.withFlavors(
-                    CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
-                    HaskellLibraryDescription.Type.STATIC_PIC.getFlavor()))
-            .build(graphBuilder);
     BuildRule sharedLib =
         new HaskellLibraryBuilder(
                 baseTarget.withFlavors(
@@ -103,7 +97,6 @@ public class HaskellLibraryDescriptionTest {
     ImmutableList<Path> outputs =
         ImmutableList.of(
                 Objects.requireNonNull(staticLib.getSourcePathToOutput()),
-                Objects.requireNonNull(staticPicLib.getSourcePathToOutput()),
                 Objects.requireNonNull(sharedLib.getSourcePathToOutput()))
             .stream()
             .map(graphBuilder.getSourcePathResolver()::getRelativePath)
@@ -111,8 +104,7 @@ public class HaskellLibraryDescriptionTest {
     assertThat(outputs.size(), Matchers.equalTo(ImmutableSet.copyOf(outputs).size()));
 
     ImmutableList<BuildTarget> targets =
-        ImmutableList.of(
-            staticLib.getBuildTarget(), staticPicLib.getBuildTarget(), sharedLib.getBuildTarget());
+        ImmutableList.of(staticLib.getBuildTarget(), sharedLib.getBuildTarget());
     assertThat(targets.size(), Matchers.equalTo(ImmutableSet.copyOf(targets).size()));
   }
 
@@ -122,14 +114,14 @@ public class HaskellLibraryDescriptionTest {
     HaskellLibraryBuilder builder = new HaskellLibraryBuilder(target).setLinkWhole(true);
     ActionGraphBuilder graphBuilder =
         new TestActionGraphBuilder(TargetGraphFactory.newInstance(builder.build()));
-    SourcePathResolver pathResolver = graphBuilder.getSourcePathResolver();
+    SourcePathResolverAdapter pathResolver = graphBuilder.getSourcePathResolver();
     HaskellLibrary library = builder.build(graphBuilder);
 
     // Lookup the link whole flags.
     Linker linker =
         CxxPlatformUtils.DEFAULT_PLATFORM
             .getLd()
-            .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE);
+            .resolve(graphBuilder, UnconfiguredTargetConfiguration.INSTANCE);
     ImmutableList<String> linkWholeFlags =
         FluentIterable.from(linker.linkWhole(StringArg.of("sentinel"), pathResolver))
             .transformAndConcat((input) -> Arg.stringifyList(input, pathResolver))
@@ -142,20 +134,9 @@ public class HaskellLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM,
             Linker.LinkableDepType.STATIC,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
+            UnconfiguredTargetConfiguration.INSTANCE);
     assertThat(
         Arg.stringify(staticInput.getArgs(), pathResolver),
-        hasItems(linkWholeFlags.toArray(new String[0])));
-
-    // Test static-pic dep type.
-    NativeLinkableInput staticPicInput =
-        library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC_PIC,
-            graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
-    assertThat(
-        Arg.stringify(staticPicInput.getArgs(), pathResolver),
         hasItems(linkWholeFlags.toArray(new String[0])));
 
     // Test shared dep type.
@@ -164,7 +145,7 @@ public class HaskellLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM,
             Linker.LinkableDepType.SHARED,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
+            UnconfiguredTargetConfiguration.INSTANCE);
     assertThat(
         Arg.stringify(sharedInput.getArgs(), pathResolver),
         not(hasItems(linkWholeFlags.toArray(new String[0]))));
@@ -179,34 +160,34 @@ public class HaskellLibraryDescriptionTest {
         new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:default")).build(graphBuilder);
     assertThat(
         defaultLib.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
-        Matchers.is(NativeLinkable.Linkage.ANY));
+        Matchers.is(NativeLinkableGroup.Linkage.ANY));
 
     // Test `ANY` value.
     HaskellLibrary anyLib =
         new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:any"))
-            .setPreferredLinkage(NativeLinkable.Linkage.ANY)
+            .setPreferredLinkage(NativeLinkableGroup.Linkage.ANY)
             .build(graphBuilder);
     assertThat(
         anyLib.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
-        Matchers.is(NativeLinkable.Linkage.ANY));
+        Matchers.is(NativeLinkableGroup.Linkage.ANY));
 
     // Test `STATIC` value.
     HaskellLibrary staticLib =
         new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:static"))
-            .setPreferredLinkage(NativeLinkable.Linkage.STATIC)
+            .setPreferredLinkage(NativeLinkableGroup.Linkage.STATIC)
             .build(graphBuilder);
     assertThat(
         staticLib.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
-        Matchers.is(NativeLinkable.Linkage.STATIC));
+        Matchers.is(NativeLinkableGroup.Linkage.STATIC));
 
     // Test `SHARED` value.
     HaskellLibrary sharedLib =
         new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:shared"))
-            .setPreferredLinkage(NativeLinkable.Linkage.SHARED)
+            .setPreferredLinkage(NativeLinkableGroup.Linkage.SHARED)
             .build(graphBuilder);
     assertThat(
         sharedLib.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
-        Matchers.is(NativeLinkable.Linkage.SHARED));
+        Matchers.is(NativeLinkableGroup.Linkage.SHARED));
   }
 
   @Test
@@ -239,7 +220,7 @@ public class HaskellLibraryDescriptionTest {
             cxxPlatform,
             Linker.LinkableDepType.STATIC,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
+            UnconfiguredTargetConfiguration.INSTANCE);
     assertThat(
         FluentIterable.from(staticInput.getArgs())
             .transformAndConcat(arg -> BuildableSupport.getDepsCollection(arg, graphBuilder))

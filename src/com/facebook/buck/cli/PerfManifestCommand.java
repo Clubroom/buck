@@ -1,26 +1,27 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cli;
 
 import com.facebook.buck.cli.PerfManifestCommand.Context;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.manifest.Manifest;
-import com.facebook.buck.core.io.ArchiveMemberPath;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -28,14 +29,13 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
-import com.facebook.buck.rules.keys.RuleKeyAndInputs;
+import com.facebook.buck.rules.keys.DependencyFileRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -97,7 +97,7 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
         throw new CommandLineException("must specify at least one build target");
       }
 
-      TargetGraph targetGraph = getTargetGraph(params, targets);
+      TargetGraphCreationResult targetGraph = getTargetGraph(params, targets);
 
       // Get a fresh action graph since we might unsafely run init from disks...
       // Also, we don't measure speed of this part.
@@ -137,8 +137,8 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
             "manipulating manifests may be innacurate without --unsafe-ask-for-rule-inputs");
       }
 
-      ImmutableMap<SupportsDependencyFileRuleKey, RuleKeyAndInputs> manifestKeys =
-          computeManifestKeys(rulesInGraph, factories);
+      ImmutableMap<SupportsDependencyFileRuleKey, DependencyFileRuleKeyFactory.RuleKeyAndInputs>
+          manifestKeys = computeManifestKeys(rulesInGraph, factories);
 
       return new Context(manifestKeys, graphBuilder, usedInputs);
     } catch (Exception e) {
@@ -147,8 +147,9 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
     }
   }
 
-  private static ImmutableMap<SupportsDependencyFileRuleKey, RuleKeyAndInputs> computeManifestKeys(
-      ImmutableList<BuildRule> rulesInGraph, RuleKeyFactories factories) {
+  private static ImmutableMap<
+          SupportsDependencyFileRuleKey, DependencyFileRuleKeyFactory.RuleKeyAndInputs>
+      computeManifestKeys(ImmutableList<BuildRule> rulesInGraph, RuleKeyFactories factories) {
     return rulesInGraph.stream()
         .filter(rule -> rule instanceof SupportsDependencyFileRuleKey)
         .map(SupportsDependencyFileRuleKey.class::cast)
@@ -201,12 +202,15 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
 
   /** Our test context. */
   public static class Context {
-    private final ImmutableMap<SupportsDependencyFileRuleKey, RuleKeyAndInputs> manifestKeys;
+    private final ImmutableMap<
+            SupportsDependencyFileRuleKey, DependencyFileRuleKeyFactory.RuleKeyAndInputs>
+        manifestKeys;
     private final BuildRuleResolver graphBuilder;
     private final ImmutableMap<BuildRule, ImmutableSet<SourcePath>> usedInputs;
 
     public Context(
-        ImmutableMap<SupportsDependencyFileRuleKey, RuleKeyAndInputs> manifestKeys,
+        ImmutableMap<SupportsDependencyFileRuleKey, DependencyFileRuleKeyFactory.RuleKeyAndInputs>
+            manifestKeys,
         ActionGraphBuilder graphBuilder,
         ImmutableMap<BuildRule, ImmutableSet<SourcePath>> usedInputs) {
       this.manifestKeys = manifestKeys;
@@ -222,7 +226,7 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
 
   @Override
   void runPerfTest(CommandRunnerParams params, Context context) throws Exception {
-    for (Entry<SupportsDependencyFileRuleKey, RuleKeyAndInputs> entry :
+    for (Entry<SupportsDependencyFileRuleKey, DependencyFileRuleKeyFactory.RuleKeyAndInputs> entry :
         context.manifestKeys.entrySet()) {
       Manifest manifest = new Manifest(entry.getValue().getRuleKey());
       // Why do we add two entries? A lot of Manifest's complexity comes from de-duplicating entries
@@ -279,8 +283,8 @@ public class PerfManifestCommand extends AbstractPerfCommand<Context> {
       }
 
       @Override
-      public HashCode get(ArchiveMemberPath archiveMemberPath) {
-        return hashFunction.newHasher().putInt(getSeedFor(archiveMemberPath.hashCode())).hash();
+      public HashCode getForArchiveMember(Path relativeArchivePath, Path memberPath) {
+        return hashFunction.newHasher().putInt(getSeedFor(relativeArchivePath.hashCode())).hash();
       }
     };
   }

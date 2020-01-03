@@ -1,28 +1,31 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ToolProviders;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
@@ -159,7 +162,7 @@ public class CxxToolchainDescription
         new DefaultLinkerProvider(
             linkerType, ToolProviders.getToolProvider(args.getLinker()), true));
 
-    if (linkerType == LinkerProvider.Type.GNU || linkerType == LinkerProvider.Type.DARWIN) {
+    if (linkerType == LinkerProvider.Type.GNU) {
       cxxPlatform.setLdflags(
           ImmutableList.<String>builder()
               // Add a deterministic build ID.
@@ -192,18 +195,20 @@ public class CxxToolchainDescription
     cxxPlatform.setRuntimeLdflags(runtimeLdFlags);
 
     cxxPlatform.setSymbolNameTool(
-        new PosixNmSymbolNameTool(
-            ToolProviders.getToolProvider(args.getNm())
-                .resolve(ruleResolver, buildTarget.getTargetConfiguration())));
+        new PosixNmSymbolNameTool(new ConstantToolProvider(new HashedFileTool(args.getNm()))));
 
     // User-configured cxx platforms are required to handle path sanitization themselves.
     cxxPlatform.setCompilerDebugPathSanitizer(NoopDebugPathSanitizer.INSTANCE);
 
-    // We require that untracked headers are errors and don't allow any whitelisting (the
-    // user-configured platform can implement it's only filtering of the produced depfiles).
+    // We require that untracked headers are errors.
     cxxPlatform.setHeaderVerification(
         HeaderVerification.of(
-            HeaderVerification.Mode.ERROR, ImmutableList.of(), ImmutableList.of()));
+            HeaderVerification.Mode.ERROR,
+            ImmutableList.of(),
+            // Ideally we don't allow any whitelisting (the user-configured platform can implement
+            // its own filtering of the produced depfiles), but currently we are relaxing this
+            // restriction.
+            args.getHeadersWhitelist()));
 
     SharedLibraryInterfaceParams.Type sharedLibraryInterfaceType =
         args.getSharedLibraryInterfaceType();
@@ -246,7 +251,7 @@ public class CxxToolchainDescription
    */
   @Value.Immutable
   @BuckStyleImmutable
-  interface AbstractCxxToolchainDescriptionArg extends CommonDescriptionArg {
+  interface AbstractCxxToolchainDescriptionArg extends BuildRuleArg {
     /** When building or creating a project, create symlinks for the public headers if it's true. */
     @Value.Default
     default boolean getPrivateHeadersSymlinksEnabled() {
@@ -362,5 +367,11 @@ public class CxxToolchainDescription
     default boolean getFilepathLengthLimited() {
       return false;
     }
+
+    /**
+     * A list of regexes which match headers (belonging to the toolchain) to exempt from untracked
+     * header verification.
+     */
+    ImmutableList<String> getHeadersWhitelist();
   }
 }

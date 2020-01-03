@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -22,7 +22,7 @@ import static org.junit.Assert.assertNull;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -35,7 +35,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -150,7 +150,7 @@ public class CxxLibraryTest {
             cxxPlatform,
             Linker.LinkableDepType.STATIC,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE));
+            UnconfiguredTargetConfiguration.INSTANCE));
 
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
@@ -165,7 +165,7 @@ public class CxxLibraryTest {
             cxxPlatform,
             Linker.LinkableDepType.SHARED,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE));
+            UnconfiguredTargetConfiguration.INSTANCE));
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
@@ -192,13 +192,13 @@ public class CxxLibraryTest {
             DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//foo:baz")));
 
     // Construct a CxxLibrary object to test.
-    CxxLibrary cxxLibrary =
-        new CxxLibrary(
+    CxxLibraryGroup cxxLibrary =
+        new CxxLibraryGroup(
             target,
             projectFilesystem,
             params,
-            CxxDeps.of(),
-            CxxDeps.of(),
+            CxxDeps.EMPTY_INSTANCE,
+            CxxDeps.EMPTY_INSTANCE,
             /* headerOnly */ x -> true,
             (unused1, unused2) -> StringArg.from("-ldl"),
             (unused1, unused2) -> StringArg.from("-lfoobarbaz"),
@@ -206,7 +206,7 @@ public class CxxLibraryTest {
             /* supportedPlatformsRegex */ Optional.empty(),
             ImmutableSet.of(frameworkPath),
             ImmutableSet.of(),
-            NativeLinkable.Linkage.STATIC,
+            NativeLinkableGroup.Linkage.STATIC,
             /* linkWhole */ false,
             Optional.empty(),
             ImmutableSortedSet.of(),
@@ -214,7 +214,7 @@ public class CxxLibraryTest {
             true,
             true,
             true,
-            Optional.empty());
+            CxxLibraryDescriptionDelegate.noop());
 
     NativeLinkableInput expectedSharedNativeLinkableInput =
         NativeLinkableInput.of(
@@ -228,7 +228,7 @@ public class CxxLibraryTest {
             cxxPlatform,
             Linker.LinkableDepType.SHARED,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE));
+            UnconfiguredTargetConfiguration.INSTANCE));
   }
 
   @Test
@@ -251,13 +251,13 @@ public class CxxLibraryTest {
             DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//foo:baz")));
 
     // Construct a CxxLibrary object to test.
-    CxxLibrary cxxLibrary =
-        new CxxLibrary(
+    CxxLibraryGroup cxxLibrary =
+        new CxxLibraryGroup(
             target,
             projectFilesystem,
             params,
-            CxxDeps.of(),
-            CxxDeps.of(),
+            CxxDeps.EMPTY_INSTANCE,
+            CxxDeps.EMPTY_INSTANCE,
             /* headerOnly */ x -> true,
             (unused1, unused2) -> StringArg.from("-ldl"),
             (unused1, unused2) -> StringArg.from("-lfoobarbaz"),
@@ -265,7 +265,7 @@ public class CxxLibraryTest {
             /* supportedPlatformsRegex */ Optional.empty(),
             ImmutableSet.of(frameworkPath),
             ImmutableSet.of(),
-            NativeLinkable.Linkage.STATIC,
+            NativeLinkableGroup.Linkage.STATIC,
             /* linkWhole */ false,
             Optional.empty(),
             ImmutableSortedSet.of(),
@@ -273,7 +273,7 @@ public class CxxLibraryTest {
             true,
             true,
             true,
-            Optional.empty());
+            CxxLibraryDescriptionDelegate.noop());
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
     linkerArgsBuilder.add(StringArg.of("-ldl"));
@@ -291,7 +291,7 @@ public class CxxLibraryTest {
             cxxPlatform,
             Linker.LinkableDepType.SHARED,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
+            UnconfiguredTargetConfiguration.INSTANCE);
 
     assertEquals(expectedSharedNativeLinkableInput, actualSharedNativeLinkableInput);
   }

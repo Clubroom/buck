@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.shell;
@@ -28,10 +28,10 @@ import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleValue;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -47,7 +47,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
-import org.immutables.value.Value;
 
 /**
  * A {@link BinaryBuildRule} that wraps other build rules, and can optionally add extra arguments,
@@ -127,7 +126,7 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
                 ImmutableSortedMap.toImmutableSortedMap(
                     Ordering.natural(), Entry::getKey, e -> buildRuleAsTool(e.getValue())));
 
-    return CrossPlatformTool.of(
+    return ImmutableCrossPlatformTool.of(
         genericDelegate
             .map(this::buildRuleAsTool)
             .orElseGet(() -> new UnsupportedPlatformTool(getBuildTarget(), platform)),
@@ -164,12 +163,12 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
     }
 
     @Override
-    public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
+    public ImmutableList<String> getCommandPrefix(SourcePathResolverAdapter resolver) {
       throw new UnsupportedPlatformException(buildTarget, platform);
     }
 
     @Override
-    public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+    public ImmutableMap<String, String> getEnvironment(SourcePathResolverAdapter resolver) {
       throw new UnsupportedPlatformException(buildTarget, platform);
     }
   }
@@ -197,9 +196,8 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
    * <p>When calculating rule keys, this tool yields the same value regardless of the host platform,
    * and - in consequence - the underlying tool it delegates to.
    */
-  @Value.Immutable
-  @BuckStyleTuple
-  abstract static class AbstractCrossPlatformTool implements Tool {
+  @BuckStyleValue
+  abstract static class CrossPlatformTool implements Tool {
 
     @AddToRuleKey
     protected abstract Tool getGenericTool();
@@ -215,12 +213,12 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
     }
 
     @Override
-    public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
+    public ImmutableList<String> getCommandPrefix(SourcePathResolverAdapter resolver) {
       return getTool().getCommandPrefix(resolver);
     }
 
     @Override
-    public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+    public ImmutableMap<String, String> getEnvironment(SourcePathResolverAdapter resolver) {
       return getTool().getEnvironment(resolver);
     }
   }

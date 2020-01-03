@@ -1,35 +1,35 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.cli;
 
 import com.facebook.buck.cli.PerfRuleKeyCommand.PreparedState;
 import com.facebook.buck.command.config.BuildBuckConfig;
+import com.facebook.buck.core.build.action.BuildEngineAction;
 import com.facebook.buck.core.build.engine.buildinfo.BuildInfo;
 import com.facebook.buck.core.build.engine.buildinfo.DefaultOnDiskBuildInfo;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
-import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
-import com.facebook.buck.core.build.engine.type.MetadataStorage;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
-import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
@@ -42,7 +42,6 @@ import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -116,30 +115,31 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
         throw new CommandLineException("must specify at least one build target");
       }
 
-      TargetGraph targetGraph = getTargetGraph(params, targets);
+      TargetGraphCreationResult targetGraph = getTargetGraph(params, targets);
 
       // Get a fresh action graph since we might unsafely run init from disks...
       // Also, we don't measure speed of this part.
-      ActionGraphBuilder graphBuilder =
-          params.getActionGraphProvider().getFreshActionGraph(targetGraph).getActionGraphBuilder();
+      ActionGraphAndBuilder graphAndBuilder =
+          params.getActionGraphProvider().getFreshActionGraph(targetGraph);
 
-      ImmutableList<BuildRule> rulesInGraph = getRulesInGraph(graphBuilder, targets);
+      ImmutableList<BuildRule> rulesInGraph =
+          getRulesInGraph(graphAndBuilder.getActionGraphBuilder(), targets);
 
       if (keyType == KeyType.DEPFILE || keyType == KeyType.MANIFEST) {
         if (unsafeInitFromDisk) {
           printWarning(params, "Unsafely initializing rules from disk.");
-          initializeRulesFromDisk(graphBuilder, rulesInGraph);
+          initializeRulesFromDisk(graphAndBuilder.getActionGraphBuilder(), rulesInGraph);
         } else {
           printWarning(
               params, "Computing depfile/manifest keys may fail without --unsafe-init-from-disk.");
         }
       }
 
-      Map<BuildRule, ImmutableList<DependencyFileEntry>> usedInputs = new HashMap<>();
+      Map<BuildEngineAction, ImmutableList<DependencyFileEntry>> usedInputs = new HashMap<>();
       if (keyType == KeyType.DEPFILE) {
         if (unsafeReadOnDiskDepfiles) {
           printWarning(params, "Unsafely reading on-disk depfiles.");
-          usedInputs = readDepFiles(params, rulesInGraph);
+          usedInputs = readDepFiles(rulesInGraph);
         } else {
           printWarning(
               params,
@@ -155,7 +155,7 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
 
       StackedFileHashCache fileHashCache =
           preserveFileHashCache ? createStackedFileHashCache(params) : null;
-      return new PreparedState(service, graphBuilder, rulesInGraph, usedInputs, fileHashCache);
+      return new PreparedState(service, graphAndBuilder, rulesInGraph, usedInputs, fileHashCache);
     } catch (Exception e) {
       throw new BuckUncheckedExecutionException(
           e, "When inspecting serialization state of the action graph.");
@@ -165,19 +165,19 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
   /** The state prepared for us to compute keys. */
   static class PreparedState {
     private final ListeningExecutorService service;
-    private final BuildRuleResolver graphBuilder;
+    private final ActionGraphAndBuilder graphAndBuilder;
     private final ImmutableList<BuildRule> rulesInGraph;
-    private final Map<BuildRule, ImmutableList<DependencyFileEntry>> usedInputs;
+    private final Map<BuildEngineAction, ImmutableList<DependencyFileEntry>> usedInputs;
     @Nullable private final StackedFileHashCache fileHashCache;
 
     PreparedState(
         ListeningExecutorService service,
-        BuildRuleResolver graphBuilder,
+        ActionGraphAndBuilder graphAndBuilder,
         ImmutableList<BuildRule> rulesInGraph,
-        Map<BuildRule, ImmutableList<DependencyFileEntry>> usedInputs,
+        Map<BuildEngineAction, ImmutableList<DependencyFileEntry>> usedInputs,
         @Nullable StackedFileHashCache fileHashCache) {
       this.service = service;
-      this.graphBuilder = graphBuilder;
+      this.graphAndBuilder = graphAndBuilder;
       this.rulesInGraph = rulesInGraph;
       this.usedInputs = usedInputs;
       this.fileHashCache = fileHashCache;
@@ -197,7 +197,9 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
         new ParallelRuleKeyCalculator<>(
             state.service,
             keyFactory,
-            new DefaultRuleDepsCache(state.graphBuilder),
+            new DefaultRuleDepsCache(
+                state.graphAndBuilder.getActionGraphBuilder(),
+                state.graphAndBuilder.getBuildEngineActionToBuildRuleResolver()),
             (buckEventBus, buildRule) -> () -> {});
 
     List<ListenableFuture<?>> futures = new ArrayList<>();
@@ -221,7 +223,7 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
         RuleKeyFactories.of(
             params.getRuleKeyConfiguration(),
             fileHashCache,
-            context.graphBuilder,
+            context.graphAndBuilder.getActionGraphBuilder(),
             Long.MAX_VALUE,
             ruleKeyCache);
 
@@ -233,20 +235,19 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
         break;
       case INPUT:
         keyFactory =
-            buildRule ->
-                buildRule instanceof SupportsInputBasedRuleKey
-                    ? factories.getInputBasedRuleKeyFactory().build(buildRule)
+            action ->
+                action instanceof SupportsInputBasedRuleKey
+                    ? factories.getInputBasedRuleKeyFactory().build(action)
                     : null;
         break;
       case DEPFILE:
         keyFactory =
-            buildRule -> {
+            action -> {
               try {
-                return buildRule instanceof SupportsDependencyFileRuleKey
+                return action instanceof SupportsDependencyFileRuleKey
                     ? depFileRuleKeyFactory.build(
-                        (SupportsDependencyFileRuleKey) buildRule,
-                        context.usedInputs.computeIfAbsent(
-                            buildRule, ignored -> ImmutableList.of()))
+                        (SupportsDependencyFileRuleKey) action,
+                        context.usedInputs.computeIfAbsent(action, ignored -> ImmutableList.of()))
                     : null;
               } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -255,11 +256,10 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
         break;
       case MANIFEST:
         keyFactory =
-            buildRule -> {
+            action -> {
               try {
-                return buildRule instanceof SupportsDependencyFileRuleKey
-                    ? depFileRuleKeyFactory.buildManifestKey(
-                        (SupportsDependencyFileRuleKey) buildRule)
+                return action instanceof SupportsDependencyFileRuleKey
+                    ? depFileRuleKeyFactory.buildManifestKey((SupportsDependencyFileRuleKey) action)
                     : null;
               } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -272,16 +272,11 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
     return keyFactory;
   }
 
-  private Map<BuildRule, ImmutableList<DependencyFileEntry>> readDepFiles(
-      CommandRunnerParams params, ImmutableList<BuildRule> rulesInGraph) {
-    Map<BuildRule, ImmutableList<DependencyFileEntry>> usedInputs = new ConcurrentHashMap<>();
+  private Map<BuildEngineAction, ImmutableList<DependencyFileEntry>> readDepFiles(
+      ImmutableList<BuildRule> rulesInGraph) {
+    Map<BuildEngineAction, ImmutableList<DependencyFileEntry>> usedInputs =
+        new ConcurrentHashMap<>();
     try (BuildInfoStoreManager buildInfoStoreManager = new BuildInfoStoreManager()) {
-      MetadataStorage metadataStorage =
-          params
-              .getBuckConfig()
-              .getView(CachingBuildEngineBuckConfig.class)
-              .getBuildMetadataStorage();
-
       rulesInGraph.forEach(
           rule -> {
             if (rule instanceof SupportsDependencyFileRuleKey
@@ -291,7 +286,7 @@ public class PerfRuleKeyCommand extends AbstractPerfCommand<PreparedState> {
                     new DefaultOnDiskBuildInfo(
                             rule.getBuildTarget(),
                             rule.getProjectFilesystem(),
-                            buildInfoStoreManager.get(rule.getProjectFilesystem(), metadataStorage))
+                            buildInfoStoreManager.get(rule.getProjectFilesystem()))
                         .getValues(BuildInfo.MetadataKey.DEP_FILE)
                         .orElseThrow(
                             () ->

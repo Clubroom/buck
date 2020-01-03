@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -22,19 +22,22 @@ import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.linker.HasImportLibrary;
+import com.facebook.buck.cxx.toolchain.linker.HasIncrementalThinLTO;
 import com.facebook.buck.cxx.toolchain.linker.HasLTO;
 import com.facebook.buck.cxx.toolchain.linker.HasLinkerMap;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linker.ExtraOutputsDeriver;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
+import com.facebook.buck.cxx.toolchain.nativelink.LinkableListFilter;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup.Linkage;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.file.MorePaths;
@@ -80,6 +83,7 @@ public class CxxLinkableEnhancer {
       BuildTarget target,
       Path output,
       Linker.LinkableDepType depType,
+      Optional<LinkableListFilter> linkableListFilter,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       ImmutableSet<BuildTarget> blacklist,
@@ -96,9 +100,10 @@ public class CxxLinkableEnhancer {
       argsBuilder.addAll(((HasLinkerMap) linker).linkerMap(output));
     }
 
-    argsBuilder.add(StringArg.of("-Wl,-plugin-opt,thinlto-index-only=thinlto.objects"));
-    argsBuilder.add(StringArg.of("-Wl,-plugin-opt,thinlto-emit-imports-files"));
-    argsBuilder.add(StringArg.of("-Wl,-plugin-opt,thinlto-prefix-replace=;" + output.toString()));
+    // ThinLto flags
+    if (linker instanceof HasIncrementalThinLTO) {
+      argsBuilder.addAll(((HasIncrementalThinLTO) linker).incrementalThinLTOFlags(output));
+    }
 
     if (linker instanceof HasImportLibrary) {
       argsBuilder.addAll(((HasImportLibrary) linker).importLibrary(output));
@@ -107,7 +112,7 @@ public class CxxLinkableEnhancer {
     // Pass any platform specific or extra linker flags.
     argsBuilder.addAll(
         SanitizedArg.from(
-            cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty()),
+            cxxPlatform.getCompilerDebugPathSanitizer().sanitizer(Optional.empty()),
             cxxPlatform.getLdflags()));
 
     ImmutableList<Arg> allArgs =
@@ -118,6 +123,7 @@ public class CxxLinkableEnhancer {
             Linker.LinkType.EXECUTABLE,
             Optional.empty(),
             depType,
+            linkableListFilter,
             nativeLinkableDeps,
             Optional.empty(),
             blacklist,
@@ -185,7 +191,7 @@ public class CxxLinkableEnhancer {
     // Pass any platform specific or extra linker flags.
     argsBuilder.addAll(
         SanitizedArg.from(
-            cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty()),
+            cxxPlatform.getCompilerDebugPathSanitizer().sanitizer(Optional.empty()),
             cxxPlatform.getLdflags()));
 
     argsBuilder.addAll(args);
@@ -235,6 +241,7 @@ public class CxxLinkableEnhancer {
       Linker.LinkType linkType,
       Optional<String> soname,
       Linker.LinkableDepType depType,
+      Optional<LinkableListFilter> linkableListFilter,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
@@ -255,14 +262,14 @@ public class CxxLinkableEnhancer {
             .maybeParallelizeTransform(
                 Collections2.filter(
                     NativeLinkables.getNativeLinkables(
-                        cxxPlatform, graphBuilder, nativeLinkableDeps, depType),
+                        graphBuilder, nativeLinkableDeps, depType, linkableListFilter),
                     linkable -> !blacklist.contains(linkable.getBuildTarget())),
                 nativeLinkable -> {
-                  Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform);
+                  Linkage link = nativeLinkable.getPreferredLinkage();
                   NativeLinkableInput input =
                       nativeLinkable.getNativeLinkableInput(
-                          cxxPlatform,
-                          NativeLinkables.getLinkStyle(link, depType),
+                          NativeLinkables.getLinkStyle(
+                              link, depType, Optional.of(cxxPlatform.getPicTypeForSharedLinking())),
                           linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
                           graphBuilder,
                           target.getTargetConfiguration());
@@ -328,7 +335,7 @@ public class CxxLinkableEnhancer {
 
   /**
    * Construct a {@link CxxLink} rule that builds a native linkable from top-level input objects and
-   * a dependency tree of {@link NativeLinkable} dependencies.
+   * a dependency tree of {@link NativeLinkableGroup} dependencies.
    *
    * @param nativeLinkableDeps library dependencies that the linkable links in
    * @param immediateLinkableInput framework and libraries of the linkable itself
@@ -345,6 +352,7 @@ public class CxxLinkableEnhancer {
       Path output,
       ImmutableList<String> extraOutputNames,
       Linker.LinkableDepType depType,
+      Optional<LinkableListFilter> linkableListFilter,
       CxxLinkOptions linkOptions,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
@@ -363,6 +371,7 @@ public class CxxLinkableEnhancer {
             linkType,
             soname,
             depType,
+            linkableListFilter,
             nativeLinkableDeps,
             bundleLoader,
             blacklist,
@@ -391,7 +400,7 @@ public class CxxLinkableEnhancer {
 
   private static void addSharedLibrariesLinkerArgs(
       CxxPlatform cxxPlatform,
-      SourcePathResolver resolver,
+      SourcePathResolverAdapter resolver,
       ImmutableSortedSet<FrameworkPath> allLibraries,
       ImmutableList.Builder<Arg> argsBuilder) {
 
@@ -403,7 +412,7 @@ public class CxxLinkableEnhancer {
 
   private static void addFrameworkLinkerArgs(
       CxxPlatform cxxPlatform,
-      SourcePathResolver resolver,
+      SourcePathResolverAdapter resolver,
       ImmutableSortedSet<FrameworkPath> allFrameworks,
       ImmutableList.Builder<Arg> argsBuilder) {
 
@@ -482,14 +491,14 @@ public class CxxLinkableEnhancer {
     public FrameworkLinkerArgs(
         ImmutableSortedSet<FrameworkPath> allFrameworks,
         CxxPlatform cxxPlatform,
-        SourcePathResolver resolver) {
+        SourcePathResolverAdapter resolver) {
       super(allFrameworks);
       frameworkPathToSearchPath =
           CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
     }
 
     @Override
-    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolverAdapter resolver) {
       ImmutableSortedSet<Path> searchPaths =
           frameworkPaths.stream()
               .map(frameworkPathToSearchPath)
@@ -507,7 +516,7 @@ public class CxxLinkableEnhancer {
     }
 
     @Override
-    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolverAdapter resolver) {
       for (FrameworkPath frameworkPath : frameworkPaths) {
         consumer.accept("-framework");
         consumer.accept(frameworkPath.getName(resolver::getAbsolutePath));
@@ -521,7 +530,7 @@ public class CxxLinkableEnhancer {
     }
 
     @Override
-    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolverAdapter resolver) {
       for (FrameworkPath frameworkPath : frameworkPaths) {
         String libName =
             MorePaths.stripPathPrefixAndExtension(
@@ -543,14 +552,14 @@ public class CxxLinkableEnhancer {
     public SharedLibraryLinkArgs(
         ImmutableSortedSet<FrameworkPath> allLibraries,
         CxxPlatform cxxPlatform,
-        SourcePathResolver resolver) {
+        SourcePathResolverAdapter resolver) {
       super(allLibraries);
       frameworkPathToSearchPath =
           CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
     }
 
     @Override
-    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolverAdapter resolver) {
       ImmutableSortedSet<Path> searchPaths =
           frameworkPaths.stream()
               .map(frameworkPathToSearchPath)

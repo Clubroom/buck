@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx.toolchain.impl;
@@ -256,7 +256,8 @@ public class DefaultCxxPlatforms {
         ArchiverProvider.from(archiver),
         ArchiveContents.NORMAL,
         ranlib,
-        new PosixNmSymbolNameTool(getHashedFileTool(config, "nm", DEFAULT_NM, env)),
+        new PosixNmSymbolNameTool(
+            new ConstantToolProvider(getHashedFileTool(config, "nm", DEFAULT_NM, env))),
         ImmutableList.of(),
         ImmutableList.of(),
         ImmutableList.of(),
@@ -267,6 +268,7 @@ public class DefaultCxxPlatforms {
         sharedLibraryVersionedExtensionFormat,
         staticLibraryExtension,
         objectFileExtension,
+        Optional.empty(),
         compilerSanitizer,
         ImmutableMap.of(),
         binaryExtension,
@@ -300,7 +302,6 @@ public class DefaultCxxPlatforms {
   }
 
   private static class RemoteExecutionDisabledTool extends DelegatingTool {
-    @SuppressWarnings("unused")
     @CustomFieldBehavior(RemoteExecutionEnabled.class)
     private final boolean enabled = false;
 

@@ -1,114 +1,53 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.multitenant.fs
 
+import com.facebook.buck.core.path.ForwardRelativePath
+import com.facebook.buck.multitenant.cache.AppendOnlyBidirectionalCache
 import com.google.common.cache.Cache
 import com.google.common.cache.CacheBuilder
 
-private val PATH_CACHE: Cache<String, FsAgnosticPath> = CacheBuilder.newBuilder().softValues().build()
+/**
+ * Cache between path [String] and [ForwardRelativePath] wrapper around this [String] value.
+ * Soft references are used.
+ * Softly-referenced objects will be garbage-collected in a <i>globally</i> least-recently-used manner,
+ * in response to memory demand.
+ */
+private val PATH_CACHE: Cache<String, ForwardRelativePath> =
+    CacheBuilder.newBuilder().softValues().build()
 
 /**
- * Prefer this to [java.nio.file.Path] in the multitenant packages. Whereas a [java.nio.file.Path]
- * is associated with a [java.nio.file.FileSystem], [FsAgnosticPath] is basically just a glorified
- * wrapper around a [String] for type safety with `Path`-like methods.
- *
- * This path will always serialize itself using '/' as the path separator, even on Windows.
+ * Cache between [ForwardRelativePath] to unique [Int] value.
  */
-data class FsAgnosticPath private constructor(private val path: String) : Comparable<FsAgnosticPath> {
-    companion object {
-        /**
-         * @param path must be a normalized, relative path.
-         */
-        fun of(path: String): FsAgnosticPath {
-            val cachedPath = PATH_CACHE.getIfPresent(path)
-            if (cachedPath != null) {
-                return cachedPath
-            }
+private val PATH_TO_INDEX_CACHE = AppendOnlyBidirectionalCache<ForwardRelativePath>()
 
-            verifyPath(path)
-            return createWithoutVerification(path)
-        }
+object FsAgnosticPath {
+    fun fromIndex(index: Int): ForwardRelativePath = PATH_TO_INDEX_CACHE.getByIndex(index)
 
-        /** Caller is responsible for verifying that the string is well-formed. */
-        private fun createWithoutVerification(verifiedPath: String): FsAgnosticPath {
-            val newPath = FsAgnosticPath(verifiedPath.intern())
-            PATH_CACHE.put(verifiedPath, newPath)
-            return newPath
-        }
-    }
-
-    override fun compareTo(other: FsAgnosticPath): Int {
-        return path.compareTo(other.path)
-    }
-
-    fun isEmpty(): Boolean {
-        return path.isEmpty()
-    }
-
-    fun startsWith(prefixPath: FsAgnosticPath): Boolean {
-        return if (path.startsWith(prefixPath.path)) {
-            if (prefixPath.path.isEmpty() || prefixPath.path.length == path.length) {
-                true
-            } else {
-                path.get(prefixPath.path.length) == '/'
-            }
-        } else {
-            false
-        }
-    }
+    fun toIndex(fsAgnosticPath: ForwardRelativePath): Int = PATH_TO_INDEX_CACHE.get(fsAgnosticPath)
 
     /**
-     * @return a path that is resolved against this path.
+     * @param path must be a normalized, relative path.
      */
-    fun resolve(other: FsAgnosticPath): FsAgnosticPath {
-        return if (isEmpty()) {
-            other
-        } else if (other.isEmpty()) {
-            this
-        } else {
-            createWithoutVerification("${path}/${other}")
-        }
-    }
-
-    override fun toString(): String {
-        return path
-    }
-}
-
-private fun verifyPath(path: String) {
-    if (path == "") {
-        return
-    }
-
-    if (path.startsWith('/')) {
-        throw IllegalArgumentException("'${path}' must be relative but starts with '/'")
-    }
-    if (path.endsWith('/')) {
-        throw IllegalArgumentException("'${path}' cannot have a trailing slash")
-    }
-
-    for (component in path.split("/")) {
-        if (component == "") {
-            throw IllegalArgumentException("'${path}' contained an empty path component")
-        }
-        if (component == ".") {
-            throw IllegalArgumentException("'${path}' contained illegal path component: '.'")
-        }
-        if (component == "..") {
-            throw IllegalArgumentException("'${path}' contained illegal path component: '..'")
+    fun of(path: String): ForwardRelativePath {
+        return PATH_CACHE.getIfPresent(path) ?: run {
+            val pathObject = ForwardRelativePath.of(path)
+            PATH_CACHE.put(path, pathObject)
+            pathObject
         }
     }
 }

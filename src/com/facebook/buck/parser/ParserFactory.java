@@ -1,32 +1,32 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.rules.knowntypes.provider.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
-import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import java.io.IOException;
-import java.util.function.Supplier;
 
 /** Responsible for creating an instance of {@link Parser}. */
 public class ParserFactory {
@@ -41,13 +41,13 @@ public class ParserFactory {
       TargetSpecResolver targetSpecResolver,
       Watchman watchman,
       BuckEventBus eventBus,
-      Supplier<ImmutableList<String>> targetPlatforms,
       ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
-      FileHashCache fileHashCache,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
+      FileHashLoader fileHashLoader,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      TargetConfiguration hostConfiguration) {
     return new ParserWithConfigurableAttributes(
         daemonicParserState,
-        new PerBuildStateFactoryWithConfigurableAttributes(
+        new PerBuildStateFactory(
             typeCoercerFactory,
             marshaller,
             knownRuleTypesProvider,
@@ -55,10 +55,10 @@ public class ParserFactory {
             watchman,
             eventBus,
             manifestServiceSupplier,
-            fileHashCache,
-            unconfiguredBuildTargetFactory),
+            fileHashLoader,
+            unconfiguredBuildTargetFactory,
+            hostConfiguration),
         targetSpecResolver,
-        eventBus,
-        targetPlatforms);
+        eventBus);
   }
 }

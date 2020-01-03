@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.rust;
@@ -19,9 +19,12 @@ package com.facebook.buck.features.rust;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -38,6 +41,7 @@ public class RustBuckConfig {
   private static final String FORCE_RLIB = "force_rlib";
   private static final String PREFER_STATIC_LIBS = "prefer_static_libs";
   private static final String RUSTC_INCREMENTAL = "incremental";
+  private static final String DEFAULT_EDITION = "default_edition";
 
   enum RemapSrcPaths {
     NO, // no path remapping
@@ -222,5 +226,26 @@ public class RustBuckConfig {
     return firstOf(
         () -> delegate.getValue(SECTION + "#" + platform, RUSTC_INCREMENTAL),
         () -> delegate.getValue(SECTION, RUSTC_INCREMENTAL));
+  }
+
+  /** Default edition when not specified in a rule. Use "2015" if not specified. */
+  String getEdition() {
+    return delegate.getValue(SECTION, DEFAULT_EDITION).orElse("2015");
+  }
+
+  private Optional<Path> getOptionalPath(String sectionName, String propertyName) {
+    Optional<String> pathString = delegate.getValue(sectionName, propertyName);
+    return pathString.map(
+        path -> delegate.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(path)));
+  }
+
+  public Optional<Path> getAppleXcrunPath() {
+    Optional<Path> xcrunPath = getOptionalPath("apple", "xcrun_path");
+    return xcrunPath.flatMap(
+        path -> new ExecutableFinder().getOptionalExecutable(path, delegate.getEnvironment()));
+  }
+
+  public Optional<Path> getAppleDeveloperDirIfSet() {
+    return getOptionalPath("apple", "xcode_developer_dir");
   }
 }

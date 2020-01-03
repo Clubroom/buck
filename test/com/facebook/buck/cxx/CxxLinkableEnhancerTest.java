@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cxx;
@@ -31,8 +31,8 @@ import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -42,15 +42,19 @@ import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
+import com.facebook.buck.cxx.toolchain.nativelink.LegacyNativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroups;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
+import com.facebook.buck.cxx.toolchain.nativelink.PlatformLockedNativeLinkableGroup;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
@@ -64,12 +68,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import org.junit.Test;
 
 public class CxxLinkableEnhancerTest {
@@ -82,12 +88,15 @@ public class CxxLinkableEnhancerTest {
   private static final CxxPlatform CXX_PLATFORM =
       CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
-  private static class FakeNativeLinkable extends FakeBuildRule implements NativeLinkable {
+  private static class FakeNativeLinkableGroup extends FakeBuildRule
+      implements LegacyNativeLinkableGroup {
 
     private final NativeLinkableInput staticInput;
     private final NativeLinkableInput sharedInput;
+    private final PlatformLockedNativeLinkableGroup.Cache linkableCache =
+        LegacyNativeLinkableGroup.getNativeLinkableCache(this);
 
-    public FakeNativeLinkable(
+    public FakeNativeLinkableGroup(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
@@ -99,13 +108,14 @@ public class CxxLinkableEnhancerTest {
     }
 
     @Override
-    public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
-      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+    public Iterable<NativeLinkableGroup> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
     }
 
     @Override
-    public Iterable<NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver) {
-      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+    public Iterable<NativeLinkableGroup> getNativeLinkableExportedDeps(
+        BuildRuleResolver ruleResolver) {
+      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
     }
 
     @Override
@@ -119,7 +129,7 @@ public class CxxLinkableEnhancerTest {
     }
 
     @Override
-    public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+    public NativeLinkableGroup.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
       return Linkage.ANY;
     }
 
@@ -128,15 +138,20 @@ public class CxxLinkableEnhancerTest {
         CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
       return ImmutableMap.of();
     }
+
+    @Override
+    public PlatformLockedNativeLinkableGroup.Cache getNativeLinkableCompatibilityCache() {
+      return linkableCache;
+    }
   }
 
-  private static FakeNativeLinkable createNativeLinkable(
+  private static FakeNativeLinkableGroup createNativeLinkable(
       String target,
       NativeLinkableInput staticNativeLinkableInput,
       NativeLinkableInput sharedNativeLinkableInput,
       BuildRule... deps) {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(target);
-    return new FakeNativeLinkable(
+    return new FakeNativeLinkableGroup(
         buildTarget,
         new FakeProjectFilesystem(),
         TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.copyOf(deps)),
@@ -173,6 +188,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -214,7 +230,7 @@ public class CxxLinkableEnhancerTest {
             ImmutableList.of(SourcePathArg.of(fakeBuildRule.getSourcePathToOutput())),
             ImmutableSet.of(),
             ImmutableSet.of());
-    FakeNativeLinkable nativeLinkable =
+    FakeNativeLinkableGroup nativeLinkable =
         createNativeLinkable("//:dep", nativeLinkableInput, nativeLinkableInput);
 
     // Construct a CxxLink object and pass the native linkable above as the dep.
@@ -231,8 +247,9 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
-            ImmutableList.<NativeLinkable>of(nativeLinkable),
+            ImmutableList.of(nativeLinkable.getNativeLinkable(CXX_PLATFORM, graphBuilder)),
             Optional.empty(),
             Optional.empty(),
             ImmutableSet.of(),
@@ -256,7 +273,7 @@ public class CxxLinkableEnhancerTest {
         ImmutableList.copyOf(
             CXX_PLATFORM
                 .getLd()
-                .resolve(graphBuilder, EmptyTargetConfiguration.INSTANCE)
+                .resolve(graphBuilder, UnconfiguredTargetConfiguration.INSTANCE)
                 .soname(soname));
 
     // Construct a CxxLink object which links as an executable.
@@ -272,6 +289,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -297,6 +315,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -323,6 +342,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -354,7 +374,8 @@ public class CxxLinkableEnhancerTest {
     NativeLinkableInput sharedInput =
         NativeLinkableInput.of(
             ImmutableList.of(StringArg.of(sharedArg)), ImmutableSet.of(), ImmutableSet.of());
-    FakeNativeLinkable nativeLinkable = createNativeLinkable("//:dep", staticInput, sharedInput);
+    FakeNativeLinkableGroup nativeLinkable =
+        createNativeLinkable("//:dep", staticInput, sharedInput);
 
     // Construct a CxxLink object which links using static dependencies.
     CxxLink staticLink =
@@ -369,8 +390,9 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
-            ImmutableList.<NativeLinkable>of(nativeLinkable),
+            ImmutableList.of(nativeLinkable.getNativeLinkable(CXX_PLATFORM, graphBuilder)),
             Optional.empty(),
             Optional.empty(),
             ImmutableSet.of(),
@@ -397,8 +419,9 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.SHARED,
+            Optional.empty(),
             CxxLinkOptions.of(),
-            ImmutableList.<NativeLinkable>of(nativeLinkable),
+            ImmutableList.of(nativeLinkable.getNativeLinkable(CXX_PLATFORM, graphBuilder)),
             Optional.empty(),
             Optional.empty(),
             ImmutableSet.of(),
@@ -440,6 +463,7 @@ public class CxxLinkableEnhancerTest {
               DEFAULT_OUTPUT,
               ImmutableList.of(),
               ent.getKey(),
+              Optional.empty(),
               CxxLinkOptions.of(),
               EMPTY_DEPS,
               Optional.empty(),
@@ -479,14 +503,20 @@ public class CxxLinkableEnhancerTest {
 
     // Now grab all input via traversing deps and verify that the middle rule prevents pulling
     // in the bottom input.
+    // Get the topologically sorted native linkables.
+    ImmutableMap<BuildTarget, NativeLinkableGroup> roots =
+        NativeLinkableGroups.getNativeLinkableRoots(
+            ImmutableList.of(top),
+            (Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>>)
+                r -> Optional.empty());
+
     NativeLinkableInput totalInput =
         NativeLinkables.getTransitiveNativeLinkableInput(
-            cxxPlatform,
             graphBuilder,
-            EmptyTargetConfiguration.INSTANCE,
-            ImmutableList.of(top),
-            Linker.LinkableDepType.STATIC,
-            r -> Optional.empty());
+            UnconfiguredTargetConfiguration.INSTANCE,
+            Iterables.transform(
+                roots.values(), g -> g.getNativeLinkable(cxxPlatform, graphBuilder)),
+            LinkableDepType.STATIC);
     assertThat(
         Arg.stringify(bottomInput.getArgs(), graphBuilder.getSourcePathResolver()),
         hasItem(sentinel));
@@ -512,6 +542,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -549,6 +580,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -575,6 +607,7 @@ public class CxxLinkableEnhancerTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(),
             Linker.LinkableDepType.STATIC,
+            Optional.empty(),
             CxxLinkOptions.of(),
             EMPTY_DEPS,
             Optional.empty(),
@@ -594,7 +627,7 @@ public class CxxLinkableEnhancerTest {
   @Test
   public void frameworksToLinkerFlagsTransformer() {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    SourcePathResolver resolver = new TestActionGraphBuilder().getSourcePathResolver();
+    SourcePathResolverAdapter resolver = new TestActionGraphBuilder().getSourcePathResolver();
 
     Arg linkerFlags =
         CxxLinkableEnhancer.frameworksToLinkerArg(

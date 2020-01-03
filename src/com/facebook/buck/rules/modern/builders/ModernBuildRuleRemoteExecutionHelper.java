@@ -1,35 +1,42 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.name.CanonicalCellName;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.core.exceptions.WrapsException;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.PathMatcher;
+import com.facebook.buck.jvm.java.version.JavaVersion;
 import com.facebook.buck.remoteexecution.UploadDataSupplier;
 import com.facebook.buck.remoteexecution.interfaces.Protocol;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.Directory;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.DirectoryNode;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.FileNode;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.SymlinkNode;
 import com.facebook.buck.remoteexecution.proto.WorkerRequirements;
@@ -42,14 +49,13 @@ import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
 import com.facebook.buck.rules.modern.impl.InputsMapBuilder;
 import com.facebook.buck.rules.modern.impl.InputsMapBuilder.Data;
+import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.Memoizer;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.env.BuckClasspath;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
-import com.facebook.buck.util.exceptions.WrapsException;
-import com.facebook.buck.util.function.ThrowingFunction;
 import com.facebook.buck.util.function.ThrowingSupplier;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Verify;
@@ -61,6 +67,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
+import com.google.common.io.ByteStreams;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -76,11 +83,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
@@ -94,7 +100,7 @@ import javax.annotation.Nullable;
  * (including plugin classpath) and run the action remotely with the {@link
  * OutOfProcessIsolatedBuilder} (via trampoline.sh).
  */
-public class ModernBuildRuleRemoteExecutionHelper {
+public class ModernBuildRuleRemoteExecutionHelper implements RemoteExecutionHelper {
   private static final Logger LOG = Logger.get(ModernBuildRuleRemoteExecutionHelper.class);
   private static final Path TRAMPOLINE =
       Paths.get(
@@ -104,23 +110,28 @@ public class ModernBuildRuleRemoteExecutionHelper {
 
   private static final String pluginResources = System.getProperty("buck.module.resources");
   private static final String pluginRoot = System.getProperty("pf4j.pluginsDir");
+  // necessary for isolated buck to work correctly
+  private static final String baseBuckOutDir = BuckConstant.getBuckOutputPath().toString();
   public static final Path TRAMPOLINE_PATH = Paths.get("__trampoline__.sh");
+  public static final Path METADATA_PATH = Paths.get(".buck.metadata");
+  private static final String FILE_HASH_VERIFICATION = "hash.verify";
 
   private final InputsMapBuilder inputsMapBuilder;
+  private ImmutableSet<PathMatcher> ignorePaths;
 
   /** Gets the shared path prefix of all the cells. */
-  public static Path getCellPathPrefix(
-      CellPathResolver cellResolver, ImmutableSet<Optional<String>> cellNames) {
+  private static Path getCellPathPrefix(
+      CellPathResolver cellResolver, ImmutableSet<CanonicalCellName> cellNames) {
     return MorePaths.splitOnCommonPrefix(
             cellNames.stream()
-                .map(name -> cellResolver.getCellPath(name).get())
+                .map(name -> cellResolver.getNewCellPathResolver().getCellPath(name))
                 .collect(ImmutableList.toImmutableList()))
         .get()
         .getFirst();
   }
 
   /** Gets all the canonical cell names. */
-  public static ImmutableSet<Optional<String>> getCellNames(Cell rootCell) {
+  private static ImmutableSet<CanonicalCellName> getCellNames(Cell rootCell) {
     return rootCell.getCellProvider().getLoadedCells().values().stream()
         .map(Cell::getCanonicalName)
         .collect(ImmutableSet.toImmutableSet());
@@ -168,9 +179,9 @@ public class ModernBuildRuleRemoteExecutionHelper {
 
   private final BuckEventBus eventBus;
 
-  private final SourcePathResolver pathResolver;
+  private final SourcePathResolverAdapter pathResolver;
   private final CellPathResolver cellResolver;
-  private final ThrowingFunction<Path, HashCode, IOException> fileHasher;
+  private final FileHashLoader fileHasher;
   private final Serializer serializer;
   private final Map<Class<?>, Map<String, Boolean>> loggedMessagesByClass;
   private final Path cellPathPrefix;
@@ -179,23 +190,24 @@ public class ModernBuildRuleRemoteExecutionHelper {
   private final HashFunction hasher;
 
   private final Protocol protocol;
+  private final Memoizer<Digest> emptyDirectoryDigestMemoizer = new Memoizer<>();
 
   public ModernBuildRuleRemoteExecutionHelper(
       BuckEventBus eventBus,
       Protocol protocol,
       SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
       Cell rootCell,
-      ImmutableSet<Optional<String>> cellNames,
-      Path cellPathPrefix,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher) {
+      FileHashLoader fileHasher,
+      ImmutableSet<PathMatcher> ignorePaths) {
+    this.ignorePaths = ignorePaths;
+    ImmutableSet<CanonicalCellName> cellNames = getCellNames(rootCell);
+    this.cellResolver = rootCell.getCellPathResolver();
+    this.cellPathPrefix = getCellPathPrefix(cellResolver, cellNames);
+
     this.eventBus = eventBus;
     this.protocol = protocol;
 
-    this.cellResolver = cellResolver;
     this.pathResolver = ruleFinder.getSourcePathResolver();
-
-    this.cellPathPrefix = cellPathPrefix;
     this.projectRoot = cellPathPrefix.relativize(rootCell.getRoot());
 
     this.nodeMap = new ConcurrentHashMap<>();
@@ -267,13 +279,14 @@ public class ModernBuildRuleRemoteExecutionHelper {
         MoreSuppliers.memoize(
             () -> {
               ImmutableList.Builder<RequiredFile> filesBuilder = ImmutableList.builder();
-              for (Optional<String> cellName : cellNames) {
+              for (CanonicalCellName cellName : cellNames) {
                 Path configPath = getPrefixRelativeCellPath(cellName).resolve(".buckconfig");
                 byte[] bytes =
                     serializeConfig(
                         rootCell
                             .getCellProvider()
-                            .getCellByPath(cellResolver.getCellPath(cellName).get())
+                            .getCellByPath(
+                                cellResolver.getNewCellPathResolver().getCellPath(cellName))
                             .getBuckConfig());
                 Digest digest = protocol.computeDigest(bytes);
                 filesBuilder.add(
@@ -295,7 +308,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
                           public String describe() {
                             return String.format(
                                 "Serialized .buckconfig (cell: %s size:%s).",
-                                cellName.orElse("root"), bytes.length);
+                                cellName.getLegacyName().orElse("root"), bytes.length);
                           }
                         }));
               }
@@ -323,12 +336,19 @@ public class ModernBuildRuleRemoteExecutionHelper {
               this.sharedRequiredFiles
                   .get()
                   .forEach(file -> sharedRequiredFiles.put(file.path, file.fileNode));
-              return nodeCache.createNode(sharedRequiredFiles, ImmutableMap.of());
+              return nodeCache.createNode(
+                  sharedRequiredFiles, ImmutableMap.of(), ImmutableMap.of());
             },
             IOException.class);
   }
 
-  boolean supportsRemoteExecution(ModernBuildRule<?> rule) {
+  @Override
+  public Path getCellPathPrefix() {
+    return cellPathPrefix;
+  }
+
+  @Override
+  public boolean supportsRemoteExecution(ModernBuildRule<?> rule) {
     // TODO(cjhopman): We may want to extend this to support returning more information about what
     // is required from the RE system (i.e. toolchains/platforms/etc).
     try {
@@ -354,13 +374,10 @@ public class ModernBuildRuleRemoteExecutionHelper {
     }
   }
 
-  /**
-   * Gets all the information needed to run the rule via Remote Execution (inputs merkle tree,
-   * action and digest, outputs).
-   */
+  @Override
   public RemoteExecutionActionInfo prepareRemoteExecution(
       ModernBuildRule<?> rule,
-      Predicate<Digest> requiredDataPredicate,
+      BiPredicate<Digest, String> requiredDataPredicate,
       WorkerRequirements workerRequirements)
       throws IOException {
     Set<Path> outputs;
@@ -394,6 +411,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
       rule.recordOutputs(
           path ->
               outputs.add(cellPathPrefix.relativize(rule.getProjectFilesystem().resolve(path))));
+      outputs.add(METADATA_PATH);
     }
 
     try (Scope ignored2 = LeafEvents.scope(eventBus, "constructing_action_info")) {
@@ -410,9 +428,11 @@ public class ModernBuildRuleRemoteExecutionHelper {
       nodeCache.forAllData(
           mergedMerkleTree,
           childData -> {
-            if (requiredDataPredicate.test(childData.getDigest())) {
+            if (requiredDataPredicate.test(
+                childData.getDigest(), childData.getDirectory().toString())) {
               requiredDataBuilder.add(
                   UploadDataSupplier.of(
+                      childData.getDirectory().toString(),
                       childData.getDigest(),
                       () ->
                           new ByteArrayInputStream(
@@ -426,13 +446,15 @@ public class ModernBuildRuleRemoteExecutionHelper {
       byte[] commandData = protocol.toByteArray(actionCommand);
       Digest commandDigest = protocol.computeDigest(commandData);
       requiredDataBuilder.add(
-          UploadDataSupplier.of(commandDigest, () -> new ByteArrayInputStream(commandData)));
+          UploadDataSupplier.of(
+              "command", commandDigest, () -> new ByteArrayInputStream(commandData)));
 
       Protocol.Action action = protocol.newAction(commandDigest, inputsRootDigest);
       byte[] actionData = protocol.toByteArray(action);
       Digest actionDigest = protocol.computeDigest(actionData);
       requiredDataBuilder.add(
-          UploadDataSupplier.of(actionDigest, () -> new ByteArrayInputStream(actionData)));
+          UploadDataSupplier.of(
+              "action", actionDigest, () -> new ByteArrayInputStream(actionData)));
 
       return RemoteExecutionActionInfo.of(
           actionDigest, requiredDataBuilder.build(), data.getTotalSize(), outputs);
@@ -441,11 +463,11 @@ public class ModernBuildRuleRemoteExecutionHelper {
 
   private void getFileInputs(
       MerkleTreeNode inputsMerkleTree,
-      Predicate<Digest> requiredDataPredicate,
+      BiPredicate<Digest, String> requiredDataPredicate,
       Consumer<UploadDataSupplier> dataConsumer) {
     inputsMerkleTree.forAllFiles(
         (path, fileNode) -> {
-          if (requiredDataPredicate.test(fileNode.getDigest())) {
+          if (requiredDataPredicate.test(fileNode.getDigest(), path.toString())) {
             dataConsumer.accept(
                 new UploadDataSupplier() {
                   @Override
@@ -461,9 +483,34 @@ public class ModernBuildRuleRemoteExecutionHelper {
                   @Override
                   public String describe() {
                     try {
-                      return String.format("File (path:%s size:%s)", path, Files.size(path));
+                      HashCode hash = hasher.hashBytes(ByteStreams.toByteArray(get()));
+                      String description =
+                          String.format(
+                              "File (path:%s size:%s). Expected hash: [%s], Calculated hash: [%s]. Cached hash: [%s].",
+                              path,
+                              Files.size(cellPathPrefix.resolve(path)),
+                              getDigest().getHash(),
+                              hash.toString(),
+                              fileHasher.get(cellPathPrefix.resolve(path)).toString());
+                      if (cellPathPrefix.resolve(path).getParent() != null) {
+                        Path metaInfo =
+                            cellPathPrefix
+                                .resolve(path)
+                                .getParent()
+                                .resolve(
+                                    path.getFileName().toString() + "." + FILE_HASH_VERIFICATION);
+                        if (Files.exists(metaInfo)) {
+                          description +=
+                              String.format(
+                                  " Meta Data Found: [%s]",
+                                  String.join(",", Files.readAllLines(metaInfo)));
+                        }
+                      }
+                      return description;
                     } catch (IOException e) {
-                      return String.format("failed to describe (%s)", e.getMessage());
+                      LOG.warn(e, "Unable to describe file: " + path);
+                      return String.format(
+                          "failed to describe (path:%s error:%s)", path, e.getMessage());
                     }
                   }
                 });
@@ -471,15 +518,18 @@ public class ModernBuildRuleRemoteExecutionHelper {
         });
   }
 
-  private Stream<UploadDataSupplier> getSharedFilesData(Predicate<Digest> requiredDataPredicate)
-      throws IOException {
+  private Stream<UploadDataSupplier> getSharedFilesData(
+      BiPredicate<Digest, String> requiredDataPredicate) throws IOException {
     ImmutableList<RequiredFile> requiredFiles = sharedRequiredFiles.get();
     return requiredFiles.stream()
         .map(requiredFile -> requiredFile.dataSupplier)
-        .filter(dataSupplier -> requiredDataPredicate.test(dataSupplier.getDigest()));
+        .filter(
+            dataSupplier ->
+                requiredDataPredicate.test(dataSupplier.getDigest(), dataSupplier.describe()));
   }
 
-  private ConcurrentHashMap<Data, MerkleTreeNode> resolvedInputsCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Data, MerkleTreeNode> resolvedInputsCache =
+      new ConcurrentHashMap<>();
 
   private MerkleTreeNode resolveInputs(Data inputs) {
     MerkleTreeNode cached = resolvedInputsCache.get(inputs);
@@ -494,21 +544,36 @@ public class ModernBuildRuleRemoteExecutionHelper {
         inputs,
         ignored -> {
           try {
-            HashMap<Path, FileNode> files = new HashMap<>();
-            HashMap<Path, SymlinkNode> symlinks = new HashMap<>();
+            Map<Path, FileNode> files = new HashMap<>();
+            Map<Path, DirectoryNode> emptyDirectories = new HashMap<>();
+            Map<Path, SymlinkNode> symlinks = new HashMap<>();
 
             FileInputsAdder inputsAdder =
                 new FileInputsAdder(
                     new FileInputsAdder.AbstractDelegate() {
                       @Override
                       public void addFile(Path path) throws IOException {
+                        for (PathMatcher matcher : ignorePaths) {
+                          if (matcher.matches(path)) {
+                            LOG.info("Ignoring input: " + path);
+                            return;
+                          }
+                        }
                         files.put(
                             cellPathPrefix.relativize(path),
                             protocol.newFileNode(
                                 protocol.newDigest(
-                                    fileHasher.apply(path).toString(), (int) Files.size(path)),
+                                    fileHasher.get(path).toString(), (int) Files.size(path)),
                                 path.getFileName().toString(),
                                 Files.isExecutable(path)));
+                      }
+
+                      @Override
+                      public void addEmptyDirectory(Path path) {
+                        DirectoryNode directoryNode =
+                            protocol.newDirectoryNode(
+                                path.getFileName().toString(), getEmptyDirectoryDigest());
+                        emptyDirectories.put(cellPathPrefix.relativize(path), directoryNode);
                       }
 
                       @Override
@@ -525,13 +590,22 @@ public class ModernBuildRuleRemoteExecutionHelper {
             }
 
             List<MerkleTreeNode> nodes = new ArrayList<>();
-            nodes.add(nodeCache.createNode(files, symlinks));
+            nodes.add(nodeCache.createNode(files, symlinks, emptyDirectories));
 
             inputs.getChildren().forEach(child -> nodes.add(resolveInputs(child)));
             return nodeCache.mergeNodes(nodes);
           } catch (IOException e) {
             throw new BuckUncheckedExecutionException(e);
           }
+        });
+  }
+
+  private Digest getEmptyDirectoryDigest() {
+    return emptyDirectoryDigestMemoizer.get(
+        () -> {
+          Directory emptyDirectory =
+              protocol.newDirectory(ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+          return protocol.computeDigest(emptyDirectory);
         });
   }
 
@@ -546,8 +620,8 @@ public class ModernBuildRuleRemoteExecutionHelper {
     return pathsBuilder.build();
   }
 
-  private Path getPrefixRelativeCellPath(Optional<String> name) {
-    return cellPathPrefix.relativize(Optionals.require(cellResolver.getCellPath(name)));
+  private Path getPrefixRelativeCellPath(CanonicalCellName name) {
+    return cellPathPrefix.relativize(cellResolver.getNewCellPathResolver().getCellPath(name));
   }
 
   private static byte[] serializeConfig(BuckConfig config) {
@@ -564,25 +638,28 @@ public class ModernBuildRuleRemoteExecutionHelper {
     return builder.toString().getBytes(Charsets.UTF_8);
   }
 
+  private String relativizePathString(Path prefixRoot, String s) {
+    if (s == null || s.length() == 0) {
+      return "";
+    }
+
+    Path path = Paths.get(s);
+    return path.isAbsolute() ? prefixRoot.relativize(path).toString() : path.toString();
+  }
+
   private ImmutableSortedMap<String, String> getBuilderEnvironmentOverrides(
       ImmutableList<Path> bootstrapClasspath, Iterable<Path> classpath, Path cellPrefixRoot) {
 
     // TODO(shivanker): Pass all user environment overrides to remote workers.
-    String relativePluginRoot = "";
-    if (pluginRoot != null) {
-      Path rootPath = Paths.get(pluginRoot);
-      relativePluginRoot =
-          (rootPath.isAbsolute() ? cellPrefixRoot.relativize(Paths.get(pluginRoot)) : pluginRoot)
-              .toString();
-    }
-    String relativePluginResources =
-        pluginResources == null
-            ? ""
-            : cellPrefixRoot.relativize(Paths.get(pluginResources)).toString();
+    String relativePluginRoot = relativizePathString(cellPrefixRoot, pluginRoot);
+    String relativeBaseBuckOut = baseBuckOutDir;
+    String relativePluginResources = relativizePathString(cellPrefixRoot, pluginResources);
     return ImmutableSortedMap.<String, String>naturalOrder()
         .put("CLASSPATH", classpathArg(bootstrapClasspath))
         .put("BUCK_CLASSPATH", classpathArg(classpath))
+        .put("BUCK_JAVA_VERSION", String.valueOf(JavaVersion.getMajorVersion()))
         .put("BUCK_PLUGIN_ROOT", relativePluginRoot)
+        .put("BASE_BUCK_OUT_DIR", relativeBaseBuckOut)
         .put("BUCK_PLUGIN_RESOURCES", relativePluginResources)
         // TODO(cjhopman): This shouldn't be done here, it's not a Buck thing.
         .put("BUCK_DISTCC", "0")
@@ -594,7 +671,8 @@ public class ModernBuildRuleRemoteExecutionHelper {
     if (rootString.isEmpty()) {
       rootString = "./";
     }
-    return ImmutableList.of("./" + TRAMPOLINE_PATH.toString(), rootString, hash);
+    return ImmutableList.of(
+        "./" + TRAMPOLINE_PATH.toString(), rootString, hash, METADATA_PATH.toString());
   }
 
   private static class Node implements Comparable<Node> {
@@ -615,9 +693,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
     // builds it may upload the same thing multiple times. To support this, we reserialize the
     // instance if its requested when we no longer hold any reference to the original serialized
     // value.
-    @SuppressWarnings("unused")
-    @Nullable
-    private volatile byte[] data;
+    @Nullable private volatile byte[] data;
 
     private WeakReference<byte[]> dataRef;
 
@@ -657,7 +733,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
 
   private MerkleTreeNode getSerializationTreeAndInputs(
       HashCode hash,
-      Predicate<Digest> requiredDataPredicate,
+      BiPredicate<Digest, String> requiredDataPredicate,
       Consumer<UploadDataSupplier> dataBuilder)
       throws IOException {
     Map<Path, FileNode> fileNodes = new HashMap<>();
@@ -667,7 +743,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
         Path valuePath = root.resolve(node.hash).resolve(fileName);
         Digest digest = protocol.newDigest(node.hash, node.dataLength);
         fileNodes.put(valuePath, protocol.newFileNode(digest, fileName, false));
-        if (!requiredDataPredicate.test(digest)) {
+        if (!requiredDataPredicate.test(digest, node.instance.getClass().getName())) {
           node.dropData();
         } else {
           byte[] data = node.acquireData(serializer, hasher);
@@ -700,7 +776,7 @@ public class ModernBuildRuleRemoteExecutionHelper {
 
     new DataAdder().addData(Paths.get("__data__"), Objects.requireNonNull(nodeMap.get(hash)));
 
-    return nodeCache.createNode(fileNodes, ImmutableMap.of());
+    return nodeCache.createNode(fileNodes, ImmutableMap.of(), ImmutableMap.of());
   }
 
   private ThrowingSupplier<ClassPath, IOException> prepareClassPath(
@@ -720,7 +796,10 @@ public class ModernBuildRuleRemoteExecutionHelper {
                   new RequiredFile(
                       relative,
                       protocol.newFileNode(digest, path.getFileName().toString(), false),
-                      UploadDataSupplier.of(digest, () -> new FileInputStream(path.toFile()))));
+                      UploadDataSupplier.of(
+                          path.getFileName().toString(),
+                          digest,
+                          () -> new FileInputStream(path.toFile()))));
             } else {
               pathsBuilder.add(path);
             }

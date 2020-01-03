@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.testutil;
@@ -24,6 +24,7 @@ import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.base.Charsets;
+import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.BufferedOutputStream;
@@ -43,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -93,6 +95,7 @@ public abstract class AbstractWorkspace {
   protected static final String SKIP_SUFFIX = "win.expected";
 
   protected Path destPath;
+  protected Path relativeWorkingDir = Paths.get("");
   private final Map<String, Map<String, String>> localConfigs = new HashMap<>();
   private boolean firstTemplateAdded = false;
 
@@ -329,7 +332,7 @@ public abstract class AbstractWorkspace {
     Files.setPosixFilePermissions(targetPath, targetPermissions);
   }
 
-  private void preAddTemplateActions(Path templatePath) throws IOException {
+  private void preAddTemplateActions(Path templatePath) {
     ensureNoLocalBuckConfig(templatePath);
   }
 
@@ -404,7 +407,7 @@ public abstract class AbstractWorkspace {
     while (!contentQueue.isEmpty()) {
       Path contentPath = contentQueue.remove();
       if (Files.isDirectory(contentPath)) {
-        Files.createDirectory(destPath.resolve(templatePath.relativize(contentPath).toString()));
+        Files.createDirectories(destPath.resolve(templatePath.relativize(contentPath).toString()));
         addDirectoryContentToQueue(provider, contentPath, contentQueue);
       } else {
         copyTemplateContentsToDestPath(provider, templatePath, contentPath);
@@ -449,6 +452,15 @@ public abstract class AbstractWorkspace {
    * @return the result of running Buck, which includes the exit code, stdout, and stderr.
    */
   public abstract ProcessResult runBuckCommand(String... args) throws Exception;
+
+  /**
+   * Set the subdirectory that commands will be executed from. Note that this might just set env
+   * vars for some workspaces
+   */
+  public void setRelativeWorkingDirectory(Path relativeWorkingDir) {
+    Verify.verify(!relativeWorkingDir.isAbsolute());
+    this.relativeWorkingDir = relativeWorkingDir;
+  }
 
   /**
    * Runs Buck with the specified list of command-line arguments with the given map of environment

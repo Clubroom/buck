@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple.toolchain.impl;
@@ -23,10 +23,12 @@ import com.facebook.buck.apple.toolchain.AppleSdkLocation;
 import com.facebook.buck.apple.toolchain.AppleSdkPaths;
 import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
+import com.facebook.buck.apple.toolchain.UnresolvedAppleCxxPlatform;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.ToolchainFactory;
 import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
@@ -43,16 +45,21 @@ public class AppleCxxPlatformsProviderFactory
 
   @Override
   public Optional<AppleCxxPlatformsProvider> createToolchain(
-      ToolchainProvider toolchainProvider, ToolchainCreationContext context) {
+      ToolchainProvider toolchainProvider,
+      ToolchainCreationContext context,
+      TargetConfiguration toolchainTargetConfiguration) {
 
     Optional<AppleSdkLocation> appleSdkLocation =
-        toolchainProvider.getByNameIfPresent(AppleSdkLocation.DEFAULT_NAME, AppleSdkLocation.class);
+        toolchainProvider.getByNameIfPresent(
+            AppleSdkLocation.DEFAULT_NAME, toolchainTargetConfiguration, AppleSdkLocation.class);
     Optional<ImmutableMap<AppleSdk, AppleSdkPaths>> appleSdkPaths =
         appleSdkLocation.map(AppleSdkLocation::getAppleSdkPaths);
 
     Optional<AppleToolchainProvider> appleToolchainProvider =
         toolchainProvider.getByNameIfPresent(
-            AppleToolchainProvider.DEFAULT_NAME, AppleToolchainProvider.class);
+            AppleToolchainProvider.DEFAULT_NAME,
+            toolchainTargetConfiguration,
+            AppleToolchainProvider.class);
     Optional<ImmutableMap<String, AppleToolchain>> appleToolchains =
         appleToolchainProvider.map(AppleToolchainProvider::getAppleToolchains);
 
@@ -69,7 +76,7 @@ public class AppleCxxPlatformsProviderFactory
     }
   }
 
-  private static FlavorDomain<AppleCxxPlatform> create(
+  private static FlavorDomain<UnresolvedAppleCxxPlatform> create(
       BuckConfig config,
       ProjectFilesystem filesystem,
       Optional<ImmutableMap<AppleSdk, AppleSdkPaths>> appleSdkPaths,
@@ -78,7 +85,11 @@ public class AppleCxxPlatformsProviderFactory
         AppleCxxPlatforms.buildAppleCxxPlatforms(
             appleSdkPaths, appleToolchains, filesystem, config);
     checkApplePlatforms(appleCxxPlatforms);
-    return FlavorDomain.from("Apple C++ Platform", appleCxxPlatforms);
+    ImmutableList<UnresolvedAppleCxxPlatform> unresolvedAppleCxxPlatforms =
+        appleCxxPlatforms.stream()
+            .map(platform -> StaticUnresolvedAppleCxxPlatform.of(platform, platform.getFlavor()))
+            .collect(ImmutableList.toImmutableList());
+    return FlavorDomain.from("Apple C++ Platform", unresolvedAppleCxxPlatforms);
   }
 
   private static void checkApplePlatforms(ImmutableList<AppleCxxPlatform> appleCxxPlatforms) {

@@ -1,23 +1,24 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.model.targetgraph.impl;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.description.arg.ConstructorArg;
 import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -30,6 +31,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.visibility.VisibilityChecker;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
 import com.facebook.buck.versions.Version;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -47,7 +49,16 @@ import org.immutables.value.Value;
  */
 @BuckStyleImmutable
 @Value.Immutable(builder = false, prehash = true)
-abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
+abstract class AbstractImmutableTargetNode<T extends ConstructorArg> implements TargetNode<T> {
+
+  @Value.Check
+  protected void check() {
+    Preconditions.checkArgument(
+        getFilesystem().getBuckPaths().getCellName().equals(getBuildTarget().getCell()),
+        "filesystem cell '%s' must match target cell: %s",
+        getFilesystem().getBuckPaths().getCellName(),
+        getBuildTarget());
+  }
 
   @Value.Parameter
   @Override
@@ -101,6 +112,10 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
 
   @Value.Parameter
   @Override
+  public abstract ImmutableSortedSet<BuildTarget> getConfigurationDeps();
+
+  @Value.Parameter
+  @Override
   public abstract CellPathResolver getCellNames();
 
   @Value.Parameter
@@ -137,6 +152,11 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   }
 
   @Override
+  public Set<BuildTarget> getTotalDeps() {
+    return Sets.union(getParseDeps(), getConfigurationDeps());
+  }
+
+  @Override
   public boolean isVisibleTo(TargetNode<?> viewer) {
     return getVisibilityChecker().isVisibleTo(viewer);
   }
@@ -145,7 +165,7 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   public void isVisibleToOrThrow(TargetNode<?> viewer) {
     if (!isVisibleTo(viewer)) {
       throw new HumanReadableException(
-          "%s depends on %s, which is not visible. More info at:\nhttps://buckbuild.com/concept/visibility.html",
+          "%s depends on %s, which is not visible. More info at:\nhttps://buck.build/concept/visibility.html",
           viewer, getBuildTarget());
     }
   }
@@ -163,11 +183,6 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   @Override
   public final String toString() {
     return getBuildTarget().getFullyQualifiedName();
-  }
-
-  @Override
-  public TargetNode<T> copy() {
-    return ImmutableTargetNode.copyOf(this);
   }
 
   @Override

@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.intellij.ideabuck.ui;
@@ -91,6 +91,7 @@ public class BuckSettingsUI extends JPanel {
   private TextFieldWithBrowseButton buildifierPathField;
   private TextFieldWithBrowseButton buildozerPathField;
   private JBTextField customizedInstallSettingField;
+  private JCheckBox autoFormatOnBlur;
   private JCheckBox showDebug;
   private JCheckBox runAfterInstall;
   private JCheckBox multiInstallMode;
@@ -322,6 +323,7 @@ public class BuckSettingsUI extends JPanel {
   }
 
   private JPanel initUISettingsSection() {
+    autoFormatOnBlur = new JCheckBox("Auto-format build files in editor (using buildifier)");
     showDebug = new JCheckBox("Show debug in tool window");
 
     JPanel panel = new JPanel(new GridBagLayout());
@@ -333,6 +335,9 @@ public class BuckSettingsUI extends JPanel {
     constraints.weightx = 1;
 
     constraints.gridy = 0;
+    panel.add(autoFormatOnBlur, constraints);
+
+    constraints.gridy = 1;
     panel.add(showDebug, constraints);
     return panel;
   }
@@ -625,6 +630,7 @@ public class BuckSettingsUI extends JPanel {
             buildozerPathField.getText().trim(),
             buckExecutableSettingsProvider.getBuildozerExecutableOverride().orElse(""))
         || buckProjectSettingsProvider.isRunAfterInstall() != runAfterInstall.isSelected()
+        || buckProjectSettingsProvider.isAutoFormatOnBlur() != autoFormatOnBlur.isSelected()
         || buckProjectSettingsProvider.isShowDebugWindow() != showDebug.isSelected()
         || buckProjectSettingsProvider.isMultiInstallMode() != multiInstallMode.isSelected()
         || buckProjectSettingsProvider.isUninstallBeforeInstalling()
@@ -645,6 +651,7 @@ public class BuckSettingsUI extends JPanel {
         textToOptional(buildifierPathField.getText()));
     buckExecutableSettingsProvider.setBuildozerExecutableOverride(
         textToOptional(buildozerPathField.getText()));
+    buckProjectSettingsProvider.setAutoFormatOnBlur(autoFormatOnBlur.isSelected());
     buckProjectSettingsProvider.setShowDebugWindow(showDebug.isSelected());
     buckProjectSettingsProvider.setRunAfterInstall(runAfterInstall.isSelected());
     buckProjectSettingsProvider.setMultiInstallMode(multiInstallMode.isSelected());
@@ -663,6 +670,7 @@ public class BuckSettingsUI extends JPanel {
         buckExecutableSettingsProvider.getBuildifierExecutableOverride().orElse(""));
     buildozerPathField.setText(
         buckExecutableSettingsProvider.getBuildozerExecutableOverride().orElse(""));
+    autoFormatOnBlur.setSelected(buckProjectSettingsProvider.isAutoFormatOnBlur());
     showDebug.setSelected(buckProjectSettingsProvider.isShowDebugWindow());
     runAfterInstall.setSelected(buckProjectSettingsProvider.isRunAfterInstall());
     multiInstallMode.setSelected(buckProjectSettingsProvider.isMultiInstallMode());

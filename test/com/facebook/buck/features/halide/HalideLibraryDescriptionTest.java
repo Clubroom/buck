@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.halide;
@@ -27,7 +27,7 @@ import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -104,11 +104,11 @@ public class HalideLibraryDescriptionTest {
 
     // Check that the library rule has the correct native linkable input.
     NativeLinkableInput input =
-        lib.getNativeLinkableInput(
-            cxxPlatform,
-            Linker.LinkableDepType.STATIC,
-            graphBuilder,
-            EmptyTargetConfiguration.INSTANCE);
+        lib.getNativeLinkable(cxxPlatform, graphBuilder)
+            .getNativeLinkableInput(
+                Linker.LinkableDepType.STATIC,
+                graphBuilder,
+                UnconfiguredTargetConfiguration.INSTANCE);
     BuildRule buildRule =
         FluentIterable.from(input.getArgs())
             .transformAndConcat(arg -> BuildableSupport.getDepsCollection(arg, graphBuilder))
@@ -130,11 +130,11 @@ public class HalideLibraryDescriptionTest {
         (HalideLibrary) halideLibraryBuilder.build(graphBuilder1, filesystem, targetGraph1);
     assertThat(
         halideLibrary
+            .getNativeLinkable(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder1)
             .getNativeLinkableInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM,
                 Linker.LinkableDepType.STATIC,
                 graphBuilder1,
-                EmptyTargetConfiguration.INSTANCE)
+                UnconfiguredTargetConfiguration.INSTANCE)
             .getArgs(),
         not(Matchers.empty()));
 
@@ -146,11 +146,11 @@ public class HalideLibraryDescriptionTest {
         (HalideLibrary) halideLibraryBuilder.build(graphBuilder2, filesystem, targetGraph2);
     assertThat(
         halideLibrary
+            .getNativeLinkable(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder1)
             .getNativeLinkableInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM,
                 Linker.LinkableDepType.STATIC,
                 graphBuilder2,
-                EmptyTargetConfiguration.INSTANCE)
+                UnconfiguredTargetConfiguration.INSTANCE)
             .getArgs(),
         Matchers.empty());
   }

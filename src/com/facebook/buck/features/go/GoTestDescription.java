@@ -1,42 +1,46 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.description.MetadataProvidingDescription;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.description.metadata.MetadataProvidingDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.exceptions.UserVerify;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.test.rule.HasTestRunner;
+import com.facebook.buck.core.test.rule.coercer.TestRunnerSpecCoercer;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -44,6 +48,7 @@ import com.facebook.buck.cxx.toolchain.impl.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.macros.AbsoluteOutputMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroExpander;
@@ -74,7 +79,7 @@ public class GoTestDescription
 
   private static final Flavor TEST_LIBRARY_FLAVOR = InternalFlavor.of("test-library");
   public static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
-      ImmutableList.of(new LocationMacroExpander());
+      ImmutableList.of(new LocationMacroExpander(), new AbsoluteOutputMacroExpander());
 
   private final GoBuckConfig goBuckConfig;
   private final ToolchainProvider toolchainProvider;
@@ -90,8 +95,11 @@ public class GoTestDescription
   }
 
   @Override
-  public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return getGoToolchain().getPlatformFlavorDomain().containsAnyOf(flavors)
+  public boolean hasFlavors(
+      ImmutableSet<Flavor> flavors, TargetConfiguration toolchainTargetConfiguration) {
+    return getGoToolchain(toolchainTargetConfiguration)
+            .getPlatformFlavorDomain()
+            .containsAnyOf(flavors)
         || flavors.contains(TEST_LIBRARY_FLAVOR);
   }
 
@@ -104,7 +112,9 @@ public class GoTestDescription
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) {
     Optional<GoPlatform> platform =
-        getGoToolchain().getPlatformFlavorDomain().getValue(buildTarget);
+        getGoToolchain(buildTarget.getTargetConfiguration())
+            .getPlatformFlavorDomain()
+            .getValue(buildTarget);
 
     if (metadataClass.isAssignableFrom(GoLinkable.class)
         && buildTarget.getFlavors().contains(TEST_LIBRARY_FLAVOR)) {
@@ -162,8 +172,8 @@ public class GoTestDescription
             // current machine, not whatever was specified in the rule or config.
             // That way, tests can be generated properly on this machine.
             platform
-                .withGoOs(AbstractGoPlatformFactory.getDefaultOs())
-                .withGoArch(AbstractGoPlatformFactory.getDefaultArch()),
+                .withGoOs(GoPlatformFactory.getDefaultOs())
+                .withGoArch(GoPlatformFactory.getDefaultArch()),
             buildTarget,
             projectFilesystem,
             params,
@@ -194,7 +204,11 @@ public class GoTestDescription
       BuildRuleParams params,
       GoTestDescriptionArg args) {
     GoPlatform platform =
-        GoDescriptors.getPlatformForRule(getGoToolchain(), this.goBuckConfig, buildTarget, args);
+        GoDescriptors.getPlatformForRule(
+            getGoToolchain(buildTarget.getTargetConfiguration()),
+            this.goBuckConfig,
+            buildTarget,
+            args);
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
@@ -253,26 +267,106 @@ public class GoTestDescription
           platform);
     }
 
-    GoBinary testMain =
+    Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
+
+    params = params.copyAppendingExtraDeps(extraDeps.build());
+
+    GoBinary testMain;
+    GoTestMain generatedTestMain;
+    if (args.getSpecs().isPresent()) {
+      UserVerify.checkArgument(
+          args.getRunner().isPresent(),
+          "runner should be specified for rules implementing test protocol");
+
+      BuildRule runner = graphBuilder.requireRule(args.getRunner().get());
+      UserVerify.verify(
+          runner instanceof GoTestRunner, "runner should be a go_test_runner for go_test");
+      GoTestRunner testRunner = (GoTestRunner) runner;
+
+      BuildRuleParams generatorParams = params.withoutDeclaredDeps().withoutExtraDeps();
+      GoBinary testMainGeneratorRule =
+          (GoBinary)
+              graphBuilder.computeIfAbsent(
+                  buildTarget.withFlavors(InternalFlavor.of("make-test-main-gen")),
+                  target ->
+                      GoDescriptors.createGoBinaryRule(
+                          target,
+                          projectFilesystem,
+                          generatorParams,
+                          graphBuilder,
+                          goBuckConfig,
+                          Linker.LinkableDepType.STATIC_PIC,
+                          Optional.empty(),
+                          ImmutableSet.of(testRunner.getTestRunnerGenerator()),
+                          ImmutableSortedSet.of(),
+                          ImmutableList.of(),
+                          ImmutableList.of(),
+                          ImmutableList.of(),
+                          ImmutableList.of(),
+                          platform));
+
+      Tool testMainGenerator = testMainGeneratorRule.getExecutableCommand();
+
+      generatedTestMain =
+          new GoTestMain(
+              buildTarget.withAppendedFlavors(InternalFlavor.of("test-main-src")),
+              projectFilesystem,
+              params.withDeclaredDeps(
+                  ImmutableSortedSet.<BuildRule>naturalOrder()
+                      .addAll(BuildableSupport.getDepsCollection(testMainGenerator, graphBuilder))
+                      .build()),
+              testMainGenerator,
+              srcs.build(),
+              packageName,
+              platform,
+              ImmutableMap.of(packageName, coverVariables),
+              coverageMode);
+      graphBuilder.addToIndex(generatedTestMain);
+    } else {
+      generatedTestMain =
+          requireTestMainGenRule(
+              buildTarget,
+              projectFilesystem,
+              params,
+              graphBuilder,
+              platform,
+              srcs.build(),
+              ImmutableMap.of(packageName, coverVariables),
+              coverageMode,
+              packageName);
+    }
+
+    testMain =
         createTestMainRule(
             buildTarget,
             projectFilesystem,
-            params.copyAppendingExtraDeps(extraDeps.build()),
+            params,
             graphBuilder,
-            srcs.build(),
-            coverVariables,
-            coverageMode,
             args,
-            platform);
+            platform,
+            generatedTestMain);
+
     graphBuilder.addToIndex(testMain);
 
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(context.getCellPathResolver())
+            .setActionGraphBuilder(graphBuilder)
             .setExpanders(MACRO_EXPANDERS)
             .build();
 
+    if (args.getSpecs().isPresent()) {
+      return new GoTestX(
+          buildTarget,
+          projectFilesystem,
+          params.withDeclaredDeps(ImmutableSortedSet.of(testMain)).withoutExtraDeps(),
+          testMain,
+          args.getLabels(),
+          args.getContacts(),
+          TestRunnerSpecCoercer.coerce(args.getSpecs().get(), macrosConverter),
+          args.getResources());
+    }
     return new GoTest(
         buildTarget,
         projectFilesystem,
@@ -287,8 +381,7 @@ public class GoTestDescription
                     .getDelegate()
                     .getView(TestBuckConfig.class)
                     .getDefaultTestRuleTimeoutMs()),
-        ImmutableMap.copyOf(
-            Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder))),
+        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert)),
         args.getRunTestSeparately(),
         args.getResources(),
         coverageMode);
@@ -299,12 +392,9 @@ public class GoTestDescription
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ActionGraphBuilder graphBuilder,
-      ImmutableSet<SourcePath> srcs,
-      ImmutableMap<String, Path> coverVariables,
-      GoTestCoverStep.Mode coverageMode,
       GoTestDescriptionArg args,
-      GoPlatform platform) {
-    Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
+      GoPlatform platform,
+      GoTestMain generatedTestMain) {
     boolean createResourcesSymlinkTree =
         goBuckConfig
             .getDelegate()
@@ -316,18 +406,6 @@ public class GoTestDescription
         new NoopBuildRuleWithDeclaredAndExtraDeps(
             buildTarget.withAppendedFlavors(TEST_LIBRARY_FLAVOR), projectFilesystem, params);
     graphBuilder.addToIndex(testLibrary);
-
-    BuildRule generatedTestMain =
-        requireTestMainGenRule(
-            buildTarget,
-            projectFilesystem,
-            params,
-            graphBuilder,
-            platform,
-            srcs,
-            ImmutableMap.of(packageName, coverVariables),
-            coverageMode,
-            packageName);
 
     GoBinary testMain =
         GoDescriptors.createGoBinaryRule(
@@ -477,23 +555,28 @@ public class GoTestDescription
     // Add the C/C++ platform parse time deps.
     GoPlatform platform =
         GoDescriptors.getPlatformForRule(
-            getGoToolchain(), this.goBuckConfig, buildTarget, constructorArg);
+            getGoToolchain(buildTarget.getTargetConfiguration()),
+            this.goBuckConfig,
+            buildTarget,
+            constructorArg);
     targetGraphOnlyDepsBuilder.addAll(
         CxxPlatforms.getParseTimeDeps(
             buildTarget.getTargetConfiguration(), platform.getCxxPlatform()));
   }
 
-  private GoToolchain getGoToolchain() {
-    return toolchainProvider.getByName(GoToolchain.DEFAULT_NAME, GoToolchain.class);
+  private GoToolchain getGoToolchain(TargetConfiguration toolchainTargetConfiguration) {
+    return toolchainProvider.getByName(
+        GoToolchain.DEFAULT_NAME, toolchainTargetConfiguration, GoToolchain.class);
   }
 
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractGoTestDescriptionArg
-      extends CommonDescriptionArg,
+      extends BuildRuleArg,
           HasContacts,
           HasDeclaredDeps,
           HasSrcs,
+          HasTestRunner,
           HasTestTimeout,
           HasGoLinkable {
     Optional<BuildTarget> getLibrary();

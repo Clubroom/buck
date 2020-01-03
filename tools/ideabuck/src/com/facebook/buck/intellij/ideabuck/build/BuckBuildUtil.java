@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.intellij.ideabuck.build;
@@ -23,13 +23,12 @@ import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpression;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckFunctionTrailer;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckTypes;
-import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiTreeUtil;
-import java.util.List;
+import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 public final class BuckBuildUtil {
@@ -112,32 +111,18 @@ public final class BuckBuildUtil {
             PsiTreeUtil.findChildOfType(child, BuckFunctionTrailer.class);
         // Find rule "project_config"
         if (functionTrailer != null) {
-          return getPropertyValue(functionTrailer, SRC_TARGET_PROPERTY_NAME);
+          return getPropertyStringValue(functionTrailer, SRC_TARGET_PROPERTY_NAME);
         }
       }
     }
     return null;
   }
 
-  /**
-   * Get the value of a property in a specific buck rule body. TODO(#7908675): We should use Buck's
-   * own classes for it.
-   */
-  public static String getPropertyValue(BuckFunctionTrailer argumentList, String name) {
-    if (argumentList == null) {
-      return null;
-    }
-    List<BuckArgument> arguments = argumentList.getArgumentList();
-    for (BuckArgument arg : arguments) {
-      PsiElement lvalue = arg.getIdentifier();
-      if (lvalue != null) {
-        PsiElement propertyName = lvalue.getFirstChild();
-        if (propertyName != null && propertyName.getText().equals(name)) {
-          BuckExpression expression = arg.getExpression();
-          return BuckPsiUtils.getStringValueFromExpression(expression);
-        }
-      }
-    }
-    return null;
+  /** Get the value of a named property in a specific buck rule body. */
+  public static String getPropertyStringValue(BuckFunctionTrailer functionTrailer, String name) {
+    return Optional.ofNullable(functionTrailer.getNamedArgument(name))
+        .map(BuckArgument::getExpression)
+        .map(BuckExpression::getStringValue)
+        .orElse(null);
   }
 }
